@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panorama Agro — Relatório Diário</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-icon"><i class="fas fa-seedling"></i></div>
+    <span class="brand-name">Panorama</span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="#resumo"          class="nav-item active" data-section="resumo">         <i class="fas fa-chart-pie"></i>   <span>Resumo</span></a>
+    <a href="#financeiro"      class="nav-item"        data-section="financeiro">     <i class="fas fa-landmark"></i>    <span>Financeiro</span></a>
+    <a href="#comercializacao" class="nav-item"        data-section="comercializacao"><i class="fas fa-wheat-awn"></i>   <span>Comercialização</span></a>
+    <a href="#indicadores"     class="nav-item"        data-section="indicadores">    <i class="fas fa-gauge-high"></i>  <span>Indicadores</span></a>
+    <a href="#alertas"         class="nav-item"        data-section="alertas">        <i class="fas fa-bell"></i>        <span>Alertas</span></a>
+  </nav>
+  <div class="sidebar-footer">
+    <button class="btn-upload" onclick="document.getElementById('fileInput').click()">
+      <i class="fas fa-file-arrow-up"></i>
+      <span>Importar Excel</span>
+    </button>
+    <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" onchange="loadExcel(this)" />
+  </div>
+</aside>
+
+<!-- MAIN CONTENT -->
+<main class="main-content" id="mainContent">
+
+  <!-- HEADER -->
+  <header class="top-header">
+    <div class="header-left">
+      <button class="hamburger" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+      <div class="header-logo">
+        <div class="logo-icon"><i class="fas fa-seedling"></i></div>
+        <div>
+          <div class="logo-title">Panorama Agro</div>
+          <div class="logo-sub">Relatório Diário de Fazendas</div>
+        </div>
+      </div>
+    </div>
+    <div class="header-center">
+      <div class="header-farm-bg"></div>
+    </div>
+    <div class="header-right">
+      <div class="header-datetime">
+        <i class="fas fa-calendar-days"></i>
+        <div>
+          <div id="headerDate" class="hd-date">—</div>
+          <div class="hd-label">Data de Emissão</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="hbtn" title="Dark mode"    onclick="toggleDark()">      <i class="fas fa-moon"></i>    </button>
+        <button class="hbtn" title="Exportar PDF" onclick="exportPDF()">       <i class="fas fa-file-pdf"></i></button>
+        <button class="hbtn" title="Fullscreen"   onclick="toggleFullscreen()"><i class="fas fa-expand"></i>  </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════
+       FILTRO GLOBAL DE EMPRESA (sticky)
+  ══════════════════════════════════════ -->
+  <div class="global-filter-bar" id="globalFilterBar">
+    <div class="gf-inner">
+      <span class="gf-label"><i class="fas fa-filter"></i> Empresa:</span>
+      <div class="gf-chips" id="gfChips">
+        <button class="gf-chip active" data-emp="TODAS" onclick="setEmpresaFiltro('TODAS', this)">
+          <i class="fas fa-layer-group"></i> Todas
+        </button>
+      </div>
+      <div class="gf-badge" id="gfBadge">Aguardando dados</div>
+    </div>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loadingOverlay" class="loading-overlay" style="display:none">
+    <div class="loading-box">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Processando planilha...</div>
+    </div>
+  </div>
+
+  <div class="page-body">
+
+    <!-- ═══════════════════════ RESUMO EXECUTIVO ═══════════════════════ -->
+    <section id="resumo" class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-chart-pie"></i> Resumo Executivo</h2>
+        <span class="section-badge" id="lastUpdated">Aguardando dados</span>
+      </div>
+
+      <!-- 4 por linha: grid-cols fixado em 4 -->
+      <div class="kpi-grid">
+        <div class="kpi-card kpi-green">
+          <div class="kpi-icon"><i class="fas fa-wallet"></i></div>
+          <div class="kpi-body">
+            <div class="kpi-label">Saldo Total</div>
+            <div class="kpi-value" id="kpiSaldoTotal">R$ —</div>
+            <div class="kpi-trend" id="kpiSaldoTrend">—</div>
+          </div>
+        </div>
+        <div class="kpi-card kpi-blue">
+          <div class="kpi-icon"><i class="fas fa-arrow-right-arrow-left"></i></div>
+          <div class="kpi-body">
+            <div class="kpi-label">Fluxo de Caixa</div>
+            <div class="kpi-value" id="kpiFluxo">USD —</div>
+            <div class="kpi-trend" id="kpiFluxoTrend">—</div>
+          </div>
+        </div>
+        <div class="kpi-card kpi-teal">
+          <div class="kpi-icon"><i class="fas fa-circle-dollar-to-slot"></i></div>
+          <div class="kpi-body">
+            <div class="kpi-label">Recebimentos USD</div>
+            <div class="kpi-value" id="kpiRecUSD">USD —</div>
+            <div class="kpi-trend" id="kpiRecTrend">—</div>
+          </div>
+        </div>
+        <div class="kpi-card kpi-red">
+          <div class="kpi-icon"><i class="fas fa-money-bill-transfer"></i></div>
+          <div class="kpi-body">
+            <div class="kpi-label">Pagamentos USD</div>
+            <div class="kpi-value" id="kpiPagUSD">USD —</div>
+            <div class="kpi-trend" id="kpiPagTrend">—</div>
+          </div>
+        </div>
+        <div class="kpi-card kpi-orange">
+          <div class="kpi-icon"><i class="fas fa-scale-balanced"></i></div>
+          <div class="kpi-body">
+            <div class="kpi-label">Exposição Cambial</div>
+            <div class="kpi-value" id="kpiExposicao">USD —</div>
+            <div class="kpi-trend" id="kpiExpTrend">—</div>
+          </div>
+        </div>
+        <div class="kpi-card kpi-lime">
+          <div class="kpi-icon"><i class="fas fa-wheat-awn"></i></div>
+          <div class="kpi-body">
+            <div class="kpi-label">Safra Comprometida</div>
+            <div class="kpi-value" id="kpiSafra">— sc</div>
+            <div class="kpi-trend" id="kpiSafraTrend">—</div>
+          </div>
+        </div>
+        <div class="kpi-card kpi-sky">
+          <div class="kpi-icon"><i class="fas fa-sack-dollar"></i></div>
+          <div class="kpi-body">
+            <div class="kpi-label">Saldo Disponível</div>
+            <div class="kpi-value" id="kpiSaldoDisp">— sc</div>
+            <div class="kpi-trend" id="kpiSaldoDispTrend">—</div>
+          </div>
+        </div>
+        <div class="kpi-card kpi-purple">
+          <div class="kpi-icon"><i class="fas fa-percent"></i></div>
+          <div class="kpi-body">
+            <div class="kpi-label">% Comercializado</div>
+            <div class="kpi-value" id="kpiComercPct">—%</div>
+            <div class="kpi-trend" id="kpiComercTrend">—</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ FLUXO DE CAIXA ═══════════════════════ -->
+    <section id="financeiro" class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-landmark"></i> Fluxo de Caixa</h2>
+      </div>
+
+      <div class="card-panel">
+        <div class="table-responsive">
+          <table id="fluxoTable" class="table table-striped" style="width:100%">
+            <thead>
+              <tr>
+                <th>Empresa</th>
+                <th>Data Base</th>
+                <th>Saldo R$</th>
+                <th>Data Rompimento</th>
+                <th>Dias p/ Romp.</th>
+                <th>Recebimentos USD</th>
+                <th>Pagamentos USD</th>
+                <th>Exposição USD</th>
+              </tr>
+            </thead>
+            <tbody id="fluxoBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 3 gráficos na mesma linha, sem espaço ocioso -->
+      <div class="charts-grid-3">
+        <div class="chart-card">
+          <div class="chart-title"><i class="fas fa-chart-bar"></i> Saldo por Empresa (R$)</div>
+          <div class="chart-wrap"><canvas id="chartSaldo"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title"><i class="fas fa-chart-bar"></i> Exposição Cambial por Empresa (USD)</div>
+          <div class="chart-wrap"><canvas id="chartExposicao"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title"><i class="fas fa-chart-bar"></i> Recebimentos × Pagamentos USD</div>
+          <div class="chart-wrap"><canvas id="chartRecPag"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ COMERCIALIZAÇÃO ═══════════════════════ -->
+    <section id="comercializacao" class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-wheat-awn"></i> Comercialização de Grãos</h2>
+      </div>
+
+      <div class="grain-panels">
+        <!-- SOJA -->
+        <div class="grain-panel grain-soja">
+          <div class="grain-header">
+            <div class="grain-dot soja-dot"></div>
+            <span class="grain-title">SOJA</span>
+            <div class="safra-tabs" id="sojaSafraTabs"></div>
+          </div>
+          <div class="table-responsive">
+            <table class="table grain-table">
+              <thead>
+                <tr>
+                  <th>Empresa</th>
+                  <th>Prod. Est. (sc)</th>
+                  <th>Comprometido</th>
+                  <th>Saldo Disp.</th>
+                  <th>% Comerc.</th>
+                  <th>Progresso</th>
+                </tr>
+              </thead>
+              <tbody id="sojaBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- MILHO -->
+        <div class="grain-panel grain-milho">
+          <div class="grain-header">
+            <div class="grain-dot milho-dot"></div>
+            <span class="grain-title">MILHO</span>
+            <div class="safra-tabs" id="milhoSafraTabs"></div>
+          </div>
+          <div class="table-responsive">
+            <table class="table grain-table">
+              <thead>
+                <tr>
+                  <th>Empresa</th>
+                  <th>Prod. Est. (sc)</th>
+                  <th>Comprometido</th>
+                  <th>Saldo Disp.</th>
+                  <th>% Comerc.</th>
+                  <th>Progresso</th>
+                </tr>
+              </thead>
+              <tbody id="milhoBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2 gráficos lado a lado, sem espaço ocioso (50/50) -->
+      <div class="charts-grid-2" style="margin-top:1.5rem">
+        <div class="chart-card">
+          <div class="chart-title"><i class="fas fa-chart-bar"></i> Comprometido × Disponível por Cultura (sc)</div>
+          <div class="chart-wrap"><canvas id="chartCultura"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title"><i class="fas fa-chart-bar"></i> Produção × Vendas × Saldo por Empresa</div>
+          <div class="chart-wrap"><canvas id="chartSojaBar"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ INDICADORES ═══════════════════════ -->
+    <section id="indicadores" class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-gauge-high"></i> Outros Indicadores-Chave</h2>
+      </div>
+      <div class="ind-grid" id="indicadoresGrid"></div>
+    </section>
+
+    <!-- ═══════════════════════ ALERTAS ═══════════════════════ -->
+    <section id="alertas" class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-bell"></i> Alertas Executivos</h2>
+      </div>
+      <div id="alertasList" class="alertas-list">
+        <div class="alerta-empty"><i class="fas fa-circle-check"></i> Nenhum dado importado. Faça o upload da planilha.</div>
+      </div>
+
+      <div class="section-header" style="margin-top:2rem">
+        <h2><i class="fas fa-triangle-exclamation"></i> Próximos Rompimentos</h2>
+      </div>
+      <div class="card-panel">
+        <table class="table romp-table" id="rompTable">
+          <thead><tr><th>Empresa</th><th>Data</th><th>Dias</th><th>Status</th></tr></thead>
+          <tbody id="rompBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </div><!-- /page-body -->
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.0/jquery.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
