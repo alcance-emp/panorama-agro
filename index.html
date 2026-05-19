@@ -24,6 +24,7 @@
     <a href="#comercializacao" class="nav-item"        data-section="comercializacao"><i class="fas fa-wheat-awn"></i>   <span>Comercialização</span></a>
     <a href="#indicadores"     class="nav-item"        data-section="indicadores">    <i class="fas fa-gauge-high"></i>  <span>Indicadores</span></a>
     <a href="#alertas"         class="nav-item"        data-section="alertas">        <i class="fas fa-bell"></i>        <span>Alertas</span></a>
+    <a href="#contratos-nav"  class="nav-item"        data-section="contratos-nav">  <i class="fas fa-file-contract"></i><span>Contratos e Embarques</span></a>
   </nav>
   <div class="sidebar-footer">
     <button class="btn-upload" onclick="document.getElementById('fileInput').click()">
@@ -145,9 +146,17 @@
         <div class="kpi-card kpi-lime">
           <div class="kpi-icon"><i class="fas fa-wheat-awn"></i></div>
           <div class="kpi-body">
-            <div class="kpi-label">Safra Comprometida</div>
+            <div class="kpi-label">Safra Comprometida — Soja</div>
             <div class="kpi-value" id="kpiSafra">— sc</div>
             <div class="kpi-trend" id="kpiSafraTrend">—</div>
+          </div>
+        </div>
+        <div class="kpi-card kpi-orange">
+          <div class="kpi-icon"><i class="fas fa-wheat-awn"></i></div>
+          <div class="kpi-body">
+            <div class="kpi-label">Safra Comprometida — Milho</div>
+            <div class="kpi-value" id="kpiSafraMilho">— sc</div>
+            <div class="kpi-trend" id="kpiSafraMilhoTrend">—</div>
           </div>
         </div>
         <div class="kpi-card kpi-sky">
@@ -270,12 +279,78 @@
       <!-- 2 gráficos lado a lado, sem espaço ocioso (50/50) -->
       <div class="charts-grid-2" style="margin-top:1.5rem">
         <div class="chart-card">
-          <div class="chart-title"><i class="fas fa-chart-bar"></i> Comprometido × Disponível por Cultura (sc)</div>
+          <div class="chart-title"><i class="fas fa-chart-bar"></i> Comprometido × Disponível por Cultura (sc)
+            <select id="filterSafraCultura" class="chart-filter-select" onchange="renderAllCharts(empresasFiltradas(), lavouraFiltrada())">
+              <option value="">Todas as Safras</option>
+            </select>
+          </div>
           <div class="chart-wrap"><canvas id="chartCultura"></canvas></div>
         </div>
         <div class="chart-card">
-          <div class="chart-title"><i class="fas fa-chart-bar"></i> Produção × Vendas × Saldo por Empresa</div>
+          <div class="chart-title"><i class="fas fa-chart-bar"></i> Produção × Vendas × Saldo por Empresa
+            <select id="filterSafraEmpresa" class="chart-filter-select" onchange="renderAllCharts(empresasFiltradas(), lavouraFiltrada())">
+              <option value="">Todas as Safras</option>
+            </select>
+          </div>
           <div class="chart-wrap"><canvas id="chartSojaBar"></canvas></div>
+        </div>
+      </div>
+
+      <!-- ─── CONTRATOS E EMBARQUES ─── -->
+      <div id="contratos-nav"></div>
+      <div class="section-header" style="margin-top:2rem">
+        <h2><i class="fas fa-file-contract"></i> Contratos e Embarques</h2>
+        <div class="safra-tabs" id="contratoSafraTabs"></div>
+      </div>
+      <div class="card-panel">
+        <div class="contrato-filters-bar">
+          <div class="contrato-filter-group">
+            <label><i class="fas fa-seedling"></i> Cultura:</label>
+            <select id="filtroContratoCultura" class="contrato-filter-select" onchange="renderContratosTable()">
+              <option value="">Todas</option>
+              <option value="SOJA">Soja</option>
+              <option value="MILHO">Milho</option>
+            </select>
+          </div>
+          <div class="contrato-filter-group">
+            <label><i class="fas fa-calendar-alt"></i> Safra:</label>
+            <select id="filtroContratoSafraExtra" class="contrato-filter-select" onchange="renderContratosTable()">
+              <option value="">Todas</option>
+            </select>
+          </div>
+          <div class="contrato-actions">
+            <button class="btn-contrato-action" onclick="toggleAgruparEmpresas()" id="btnAgrupar">
+              <i class="fas fa-layer-group"></i> Agrupar por Empresa
+            </button>
+            <button class="btn-contrato-action btn-export-excel" onclick="exportContratosExcel()">
+              <i class="fas fa-file-excel"></i> Exportar Excel
+            </button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table contrato-table" id="contratosTable" style="width:100%;font-size:0.83rem">
+            <thead>
+              <tr>
+                <th>Empresa</th>
+                <th>Cultura</th>
+                <th>Nº Contrato</th>
+                <th>Cliente / Comprador</th>
+                <th>Qt. Contrato (sc)</th>
+                <th>Qt. Entregue (sc)</th>
+                <th>Qt. A Entregar (sc)</th>
+                <th>Qt. Faturada (sc)</th>
+                <th>Qt. A Faturar (sc)</th>
+                <th>% Atendimento</th>
+              </tr>
+            </thead>
+            <tbody id="contratosBody"></tbody>
+          </table>
+        </div>
+        <div class="contrato-legenda">
+          <span><span class="leg-dot" style="background:var(--green-light)"></span> ≥ 80% faturado</span>
+          <span><span class="leg-dot" style="background:var(--yellow)"></span> 40–79% faturado</span>
+          <span><span class="leg-dot" style="background:var(--red)"></span> &lt; 40% faturado</span>
+          <span class="leg-note">% Atendimento = Qt. Entregue ÷ Qt. Contrato</span>
         </div>
       </div>
     </section>
@@ -297,15 +372,6 @@
         <div class="alerta-empty"><i class="fas fa-circle-check"></i> Nenhum dado importado. Faça o upload da planilha.</div>
       </div>
 
-      <div class="section-header" style="margin-top:2rem">
-        <h2><i class="fas fa-triangle-exclamation"></i> Próximos Rompimentos</h2>
-      </div>
-      <div class="card-panel">
-        <table class="table romp-table" id="rompTable">
-          <thead><tr><th>Empresa</th><th>Data</th><th>Dias</th><th>Status</th></tr></thead>
-          <tbody id="rompBody"></tbody>
-        </table>
-      </div>
     </section>
 
   </div><!-- /page-body -->

@@ -485,3 +485,149 @@ body {
   border: none !important;
 }
 .dataTables_wrapper { color: var(--text-main); }
+
+/* ── CONTRATOS TABLE ─────────────────────────────── */
+.contrato-table thead th { font-size: 0.78rem; white-space: nowrap; }
+.contrato-table tbody td { vertical-align: middle; }
+.contrato-total-row td   { background: var(--green-pale); font-weight: 700; border-top: 2px solid var(--green-light); }
+[data-dark="true"] .contrato-total-row td { background: rgba(64,145,108,.15); }
+
+.cultura-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.cultura-soja  { background: rgba(45,106,79,.15);  color: #2d6a4f; }
+.cultura-milho { background: rgba(231,111,81,.15); color: #c25d3c; }
+.cultura-outro { background: rgba(123,45,139,.15); color: #7b2d8b; }
+[data-dark="true"] .cultura-soja  { background: rgba(64,145,108,.25); color: #74c69d; }
+[data-dark="true"] .cultura-milho { background: rgba(231,111,81,.25); color: #f4a261; }
+[data-dark="true"] .cultura-outro { background: rgba(123,45,139,.25); color: #c77ddf; }
+
+.contrato-legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  padding: .75rem 1rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  align-items: center;
+}
+.leg-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+.leg-note { font-style: italic; opacity: .8; margin-left: auto; }
+
+/* ── INDICADORES LIVE BADGE ──────────────────────── */
+.ind-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-bottom: .15rem;
+}
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  color: #40916c;
+  background: rgba(64,145,108,.12);
+  border-radius: 20px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.live-badge i { font-size: .5rem; animation: livePulse 1.4s infinite; }
+@keyframes livePulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+[data-dark="true"] .live-badge { background: rgba(64,145,108,.22); color: #74c69d; }
+
+/* ── CHART FILTER SELECT ─────────────────────────── */
+.chart-filter-select {
+  font-family: var(--font);
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text-main);
+  cursor: pointer;
+  margin-left: .75rem;
+}
+[data-dark="true"] .chart-filter-select { background: var(--panel); color: var(--text-main); }
+
+/* ── CONTRATO FILTERS BAR ────────────────────────── */
+.contrato-filters-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem 1.25rem;
+  padding: .75rem 1rem;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  margin-bottom: 1rem;
+}
+.contrato-filter-group {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .82rem;
+  color: var(--text-muted);
+}
+.contrato-filter-select {
+  font-family: var(--font);
+  font-size: .82rem;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text-main);
+  cursor: pointer;
+}
+.contrato-actions {
+  margin-left: auto;
+  display: flex;
+  gap: .5rem;
+}
+.btn-contrato-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font);
+  font-size: .8rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1.5px solid var(--border);
+  background: var(--panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .2s;
+}
+.btn-contrato-action:hover { border-color: var(--green-light); color: var(--green-light); }
+.btn-contrato-action.active { background: var(--green-light); color: #fff; border-color: var(--green-light); }
+.btn-export-excel { border-color: #1d6f42; color: #1d6f42; }
+.btn-export-excel:hover { background: #1d6f42; color: #fff; }
+
+/* ── CONTRATO GROUP ROWS ─────────────────────────── */
+.contrato-group-row {
+  background: rgba(64,145,108,.08) !important;
+}
+.contrato-group-row td { font-size: .83rem; }
+.contrato-sub-row td { background: rgba(64,145,108,.03) !important; }
+.group-toggle-icon { margin-right: .4rem; color: var(--green-light); }
+.group-count {
+  margin-left: .5rem;
+  font-size: .73rem;
+  opacity: .6;
+  font-weight: 400;
+}
