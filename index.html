@@ -2,9 +2,9 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
-<title>Panograma Agro</title>
+<title>Panorama Agro</title>
 
 <style>
 *{
@@ -14,37 +14,42 @@
 }
 
 body{
-    font-family: Arial, sans-serif;
+    font-family:Arial,sans-serif;
+
     background:
     linear-gradient(
-    rgba(10,10,10,.88),
-    rgba(10,10,10,.92)
+        rgba(10,10,10,.88),
+        rgba(10,10,10,.92)
     ),
     url("https://images.unsplash.com/photo-1554224155-6726b3ff858f?q=80&w=1800");
 
     background-size:cover;
     background-position:center;
 
-    height:100vh;
+    min-height:100vh;
+
     display:flex;
     justify-content:center;
     align-items:center;
+
     color:white;
 }
 
 .container{
     width:420px;
+    max-width:90vw;
+
     padding:45px;
     border-radius:28px;
 
-    background:rgba(255,255,255,0.06);
+    background:rgba(255,255,255,.06);
 
     backdrop-filter:blur(18px);
 
-    border:1px solid rgba(255,255,255,0.10);
+    border:1px solid rgba(255,255,255,.10);
 
     box-shadow:
-    0 20px 60px rgba(0,0,0,.45);
+        0 20px 60px rgba(0,0,0,.45);
 
     text-align:center;
 }
@@ -60,46 +65,56 @@ h1{
 }
 
 .subtitle{
-    color:#bdbdbd;
-    margin-bottom:35px;
+    color:#c9c9c9;
     line-height:1.6;
+    margin-bottom:28px;
 }
 
 input{
     width:100%;
     padding:18px;
-    border-radius:16px;
-    border:none;
 
-    background:#1e1e1e;
+    border:none;
+    border-radius:16px;
+
+    background:#171717;
     color:white;
 
-    font-size:16px;
     outline:none;
+    font-size:16px;
 
-    margin-bottom:20px;
+    margin-bottom:18px;
 }
 
 button{
     width:100%;
-    border:none;
-    border-radius:16px;
 
     padding:18px;
 
-    font-size:16px;
+    border:none;
+    border-radius:16px;
+
     cursor:pointer;
 
-    transition:.3s ease;
+    font-size:16px;
+    font-weight:600;
+
+    transition:.2s;
 }
 
 button:hover{
     transform:translateY(-2px);
 }
 
+.error{
+    color:#ff8a8a;
+    margin-top:14px;
+    display:none;
+}
+
 .footer{
     margin-top:22px;
-    color:#8b8b8b;
+    color:#9f9f9f;
     font-size:13px;
 }
 </style>
@@ -110,10 +125,10 @@ button:hover{
 <div class="container">
 
     <img
-      src="assets/logo_alcance.png"
-      class="logo"
-      alt="Alcance Logo"
-    />
+        src="assets/logo_alcance.png"
+        class="logo"
+        alt="Logo"
+    >
 
     <h1>Panorama de Empresas</h1>
 
@@ -122,17 +137,19 @@ button:hover{
         Digite sua senha para continuar.
     </p>
 
-    <form id="password-form">
-        <input
-            id="password"
-            type="password"
-            placeholder="Digite sua senha"
-        />
+    <input
+        type="password"
+        id="senha"
+        placeholder="Digite sua senha"
+    >
 
-        <button type="submit">
-            Entrar no Dashboard
-        </button>
-    </form>
+    <button onclick="entrar()">
+        Entrar na Página
+    </button>
+
+    <div class="error" id="erro">
+        Senha incorreta
+    </div>
 
     <div class="footer">
         RSP • Inteligência Financeira
@@ -140,7 +157,29 @@ button:hover{
 
 </div>
 
-<!-- STATICRYPT_PASSWORD_PLACEHOLDER -->
+<script>
+function entrar(){
+
+    const senha = document
+        .getElementById("senha")
+        .value;
+
+    if(senha === "alcance@2026"){
+
+        sessionStorage.setItem(
+            "dashboardAuth",
+            "true"
+        );
+
+        window.location.href = "dashboard.html";
+    }
+    else{
+        document
+            .getElementById("erro")
+            .style.display = "block";
+    }
+}
+</script>
 
 </body>
 </html>
