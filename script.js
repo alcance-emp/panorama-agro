@@ -2,9 +2,13 @@
    PANORAMA AGRO — script.js
    =================================================== */
 
-// ── URL OneDrive (download direto via API) ─────────
-// Link compartilhado: https://1drv.ms/x/c/05418175b9d0adeb/IQD9VhnyqeMZS7qsHeMHU9PaAeCQySsMV5aRhzZ1vX_C-4M?e=cRCoLT
-const ONEDRIVE_URL = 'https://onedrive.live.com/personal/05418175b9d0adeb/_layouts/15/download.aspx?UniqueId=f21956fd%2De3a9%2D4b19%2Dbaac%2D1de30753d3da';
+// ── URL do Proxy (Cloudflare Worker) ──────────────
+// ⚠ Substitua pela URL real do seu Worker após publicar em workers.cloudflare.com
+// Exemplo: https://onedrive-proxy.SEU_USUARIO.workers.dev
+const ONEDRIVE_URL = 'https://onedrive-proxy.rafaelsousarsp.workers.dev/';
+
+// Token OneDrive (usado internamente pelo Worker — não precisa alterar aqui)
+// Link original: https://1drv.ms/x/c/05418175b9d0adeb/IQD9VhnyqeMZS7qsHeMHU9PaAeCQySsMV5aRhzZ1vX_C-4M?e=kjd48N
 
 // ── Estado global ──────────────────────────────────
 let DATA = { panorama: [], saldo: [], fluxo: [], lavoura: [], contratos: [] };
@@ -46,6 +50,7 @@ async function autoLoadFromOneDrive() {
   if (badge) badge.textContent = 'Atualizando...';
   showLoading(true);
   try {
+    // Busca via proxy Cloudflare Worker (contorna bloqueio CORS do OneDrive)
     const res = await fetch(ONEDRIVE_URL);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const buf = await res.arrayBuffer();
