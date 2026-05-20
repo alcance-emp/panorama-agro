@@ -2,11 +2,11 @@
    PANORAMA AGRO — script.js
    =================================================== */
 
-// ── URL do Proxy (Cloudflare Worker) ──────────────
-// Worker: https://onedrive-proxy.rafaelsousarsp.workers.dev/
-// Arquivo OneDrive (download direto):
-// https://onedrive.live.com/personal/05418175b9d0adeb/_layouts/15/download.aspx?UniqueId=f21956fd-e3a9-4b19-baac-1de30753d3da
-const ONEDRIVE_URL = 'https://onedrive-proxy.rafaelsousarsp.workers.dev/';
+// ── Fonte dos dados ────────────────────────────────
+// O arquivo é baixado automaticamente do OneDrive pelo GitHub Actions
+// e salvo em /data/Panorama_empresas.xlsx no repositório.
+// O dashboard sempre lê desse caminho relativo — sem CORS, sem proxy.
+const ONEDRIVE_URL = 'data/Panorama_empresas.xlsx';
 
 // ── Estado global ──────────────────────────────────
 let DATA = { panorama: [], saldo: [], fluxo: [], lavoura: [], contratos: [] };

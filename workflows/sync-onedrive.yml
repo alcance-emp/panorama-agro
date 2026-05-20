@@ -1,0 +1,49 @@
+name: Sync OneDrive → GitHub Pages
+
+# Roda a cada hora E permite disparo manual
+on:
+  schedule:
+    - cron: '0 * * * *'   # toda hora em ponto (UTC)
+  workflow_dispatch:       # botão "Run workflow" manual no GitHub
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # necessário para fazer commit
+
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Baixar arquivo do OneDrive
+        run: |
+          mkdir -p data
+          # Link de download direto do OneDrive (UniqueId permanente do arquivo)
+          # Para atualizar: substitua a URL abaixo pelo novo link de download direto
+          curl -L \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
+            -o data/Panorama_empresas.xlsx \
+            "https://onedrive.live.com/personal/05418175b9d0adeb/_layouts/15/download.aspx?UniqueId=f21956fd-e3a9-4b19-baac-1de30753d3da"
+
+          # Verifica se o download retornou um XLSX válido (começa com PK = ZIP)
+          if ! file data/Panorama_empresas.xlsx | grep -q "Zip\|zip\|ZIP\|Microsoft\|Excel"; then
+            echo "❌ Arquivo baixado não parece ser um XLSX válido"
+            echo "Conteúdo recebido:"
+            head -c 500 data/Panorama_empresas.xlsx
+            exit 1
+          fi
+          echo "✅ Arquivo baixado com sucesso: $(wc -c < data/Panorama_empresas.xlsx) bytes"
+
+      - name: Commit e push (se houver mudança)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/Panorama_empresas.xlsx
+          # Só faz commit se o arquivo mudou
+          if git diff --staged --quiet; then
+            echo "ℹ️ Arquivo sem alterações — nenhum commit necessário"
+          else
+            git commit -m "chore: atualiza Panorama_empresas.xlsx [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+            git push
+          fi
