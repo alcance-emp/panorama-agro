@@ -3,7 +3,8 @@
    =================================================== */
 
 // ── URL OneDrive (download direto via API) ─────────
-const ONEDRIVE_URL = 'https://api.onedrive.com/v1.0/shares/u!aHR0cHM6Ly8xZHJ2Lm1zL3gvYy8wNTQxODE3NWI5ZDBhZGViL0lRRDlWaG55cWVNWlM3cXNIZU1IVTlQYUFlQ1F5U3NNVjVhUmh6WjF2WF9DLTRNP2U9ZUN3WjlQ/root/content';
+// Link compartilhado: https://1drv.ms/x/c/05418175b9d0adeb/IQD9VhnyqeMZS7qsHeMHU9PaAeCQySsMV5aRhzZ1vX_C-4M?e=cRCoLT
+const ONEDRIVE_URL = 'https://api.onedrive.com/v1.0/shares/u!aHR0cHM6Ly8xZHJ2Lm1zL3gvYy8wNTQxODE3NWI5ZDBhZGViL0lRRDlWaG55cWVNWlM3cXNIZU1IVTlQYUFlQ1F5U3NNVjVhUmh6WjF2WF9DLTRNP2U9Y1JDb0xU/root/content';
 
 // ── Estado global ──────────────────────────────────
 let DATA = { panorama: [], saldo: [], fluxo: [], lavoura: [], contratos: [] };
@@ -34,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initCharts();
   setupNavHighlight();
   autoLoadFromOneDrive();
-  setInterval(autoLoadFromOneDrive, 5 * 60 * 1000);
+  setInterval(autoLoadFromOneDrive, 60 * 60 * 1000); // atualiza a cada 1 hora
   fetchMarketData();
   setInterval(fetchMarketData, 15 * 60 * 1000);
 });
