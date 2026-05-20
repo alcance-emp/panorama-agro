@@ -4,7 +4,7 @@
 
 // ── URL OneDrive (download direto via API) ─────────
 // Link compartilhado: https://1drv.ms/x/c/05418175b9d0adeb/IQD9VhnyqeMZS7qsHeMHU9PaAeCQySsMV5aRhzZ1vX_C-4M?e=cRCoLT
-const ONEDRIVE_URL = 'https://api.onedrive.com/v1.0/shares/u!aHR0cHM6Ly8xZHJ2Lm1zL3gvYy8wNTQxODE3NWI5ZDBhZGViL0lRRDlWaG55cWVNWlM3cXNIZU1IVTlQYUFlQ1F5U3NNVjVhUmh6WjF2WF9DLTRNP2U9Y1JDb0xU/root/content';
+const ONEDRIVE_URL = 'https://onedrive.live.com/personal/05418175b9d0adeb/_layouts/15/download.aspx?UniqueId=f21956fd%2De3a9%2D4b19%2Dbaac%2D1de30753d3da';
 
 // ── Estado global ──────────────────────────────────
 let DATA = { panorama: [], saldo: [], fluxo: [], lavoura: [], contratos: [] };
