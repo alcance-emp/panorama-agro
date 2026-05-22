@@ -3,11 +3,26 @@
    =================================================== */
 
 // ── Fonte dos dados ────────────────────────────────
-// O arquivo é baixado automaticamente do OneDrive pelo GitHub Actions
-// e salvo em /data/Panorama_empresas.xlsx no repositório.
-// O dashboard sempre lê desse caminho relativo — sem CORS, sem proxy.
-const GOOGLE_SHEET_URL =
-  'https://docs.google.com/spreadsheets/d/13LX4-3YPRaAXu9E40uXDDwx6N-BDUzQE/export?format=xlsx';
+// Substitua o valor abaixo pelo ID da sua planilha do Google Sheets.
+// Para obter o ID: abra a planilha → copie a URL → o ID fica entre /d/ e /edit
+// Exemplo: https://docs.google.com/spreadsheets/d/SEU_ID_AQUI/edit
+//
+// IMPORTANTE: A planilha precisa estar com acesso público:
+//   Compartilhar → "Qualquer pessoa com o link" → "Visualizador"
+//
+const SHEET_ID = '13LX4-3YPRaAXu9E40uXDDwx6N-BDUzQE'; // ← substitua pelo ID completo da sua planilha
+
+// URLs de exportação (tentadas em ordem)
+const GOOGLE_SHEET_URLS = [
+  // URL direta (funciona se a planilha for pública)
+  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=xlsx&cachebust=${Date.now()}`,
+  // Proxy CORS público como fallback
+  `https://corsproxy.io/?url=${encodeURIComponent(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=xlsx`)}`,
+  `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=xlsx`)}`,
+];
+
+// Intervalo de atualização automática (em milissegundos)
+const AUTO_REFRESH_INTERVAL = 60 * 60 * 1000; // 1 hora
 
 // ── Estado global ──────────────────────────────────
 let DATA = { panorama: [], saldo: [], fluxo: [], lavoura: [], contratos: [] };
@@ -38,69 +53,88 @@ document.addEventListener('DOMContentLoaded', () => {
   initCharts();
   setupNavHighlight();
   autoLoadFromGoogleDrive();
-  setInterval(autoLoadFromGoogleDrive, 60 * 60 * 1000); // atualiza a cada 1 hora
+  setInterval(autoLoadFromGoogleDrive, AUTO_REFRESH_INTERVAL);
   fetchMarketData();
   setInterval(fetchMarketData, 15 * 60 * 1000);
 });
 
 // ── Carga automática do Google Sheets ──────────────
 async function autoLoadFromGoogleDrive() {
-  const badge = document.getElementById('gfBadge');
+  const badge    = document.getElementById('gfBadge');
+  const statusEl = document.getElementById('driveStatus');
 
-  if (badge) badge.textContent = 'Atualizando...';
+  if (badge)    badge.textContent = 'Atualizando...';
+  if (statusEl) statusEl.textContent = '⏳ Conectando ao Google Sheets...';
 
   showLoading(true);
 
-  try {
-    const res = await fetch(GOOGLE_SHEET_URL, {
-      method: 'GET',
-      cache: 'no-store'
-    });
+  let lastError = null;
 
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
+  // Tenta cada URL em sequência até uma funcionar
+  for (let i = 0; i < GOOGLE_SHEET_URLS.length; i++) {
+    const url = GOOGLE_SHEET_URLS[i];
+    const label = i === 0 ? 'direto' : `proxy ${i}`;
 
-    const buf = await res.arrayBuffer();
+    try {
+      if (statusEl) statusEl.textContent = `⏳ Tentando ${label}...`;
 
-    const wb = XLSX.read(buf, {
-      type: 'array',
-      cellDates: true
-    });
+      const res = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: AbortSignal.timeout(20000) // 20s timeout
+      });
 
-    DATA.panorama = sheetToArray(wb, 'PANORAMA');
-    DATA.lavoura = sheetToArray(wb, 'LAVOURA');
-    DATA.contratos = sheetToArray(wb, 'CONTRATOS');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-    PARSED.panorama = parsePanorama();
-    PARSED.lavoura = parseLavoura();
-    PARSED.contratos = parseContratos();
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength < 100) throw new Error('Resposta vazia ou inválida');
 
-    FILTRO_EMPRESA = 'TODAS';
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
 
-    buildFilterChips(PARSED.panorama.empresas);
-    initSafraTabs();
-    initContratoSafraTabs();
-    refreshAll();
+      // Verifica se as abas existem
+      const sheets = wb.SheetNames;
+      console.log('Abas encontradas:', sheets);
 
-    const now = new Date();
+      DATA.panorama  = sheetToArray(wb, 'PANORAMA');
+      DATA.lavoura   = sheetToArray(wb, 'LAVOURA');
+      DATA.contratos = sheetToArray(wb, 'CONTRATOS');
 
-    if (badge) {
-      badge.textContent =
-        'Google Drive · ' +
-        now.toLocaleTimeString('pt-BR', {
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-    }
+      PARSED.panorama  = parsePanorama();
+      PARSED.lavoura   = parseLavoura();
+      PARSED.contratos = parseContratos();
 
-  } catch (err) {
-    console.error('Falha ao carregar Google Sheets:', err);
+      FILTRO_EMPRESA = 'TODAS';
 
-    if (badge) {
-      badge.textContent = 'Erro ao conectar Google Drive';
+      buildFilterChips(PARSED.panorama.empresas);
+      initSafraTabs();
+      initContratoSafraTabs();
+      refreshAll();
+
+      const now = new Date();
+      const hora = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+      if (badge)    badge.textContent = `Google Sheets · ${hora}`;
+      if (statusEl) statusEl.textContent = `✅ Atualizado às ${hora} via ${label}`;
+
+      showLoading(false);
+      return; // sucesso — para aqui
+
+    } catch (err) {
+      console.warn(`[autoLoad] Falha via ${label}:`, err.message);
+      lastError = err;
+      // continua para próxima URL
     }
   }
+
+  // Todas as tentativas falharam
+  console.error('[autoLoad] Todas as tentativas falharam:', lastError);
+
+  const msgErro = lastError?.message?.includes('timeout')
+    ? 'Timeout — verifique se a planilha é pública'
+    : 'Erro ao conectar — verifique o ID da planilha';
+
+  if (badge)    badge.textContent = '⚠ ' + msgErro;
+  if (statusEl) statusEl.textContent = `❌ ${msgErro}`;
 
   showLoading(false);
 }
