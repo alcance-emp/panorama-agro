@@ -7,7 +7,7 @@
 // e salvo em /data/Panorama_empresas.xlsx no repositório.
 // O dashboard sempre lê desse caminho relativo — sem CORS, sem proxy.
 const GOOGLE_SHEET_URL =
-  'https://docs.google.com/spreadsheets/d/13LX4-3YPRaAXu9E40uXDDwx6N-BDUzQE/export?format=xlsx';;
+  'https://docs.google.com/spreadsheets/d/13LX4-3YPRaAXu9E40uXDDwx6N-BDUzQE/export?format=xlsx';
 
 // ── Estado global ──────────────────────────────────
 let DATA = { panorama: [], saldo: [], fluxo: [], lavoura: [], contratos: [] };
