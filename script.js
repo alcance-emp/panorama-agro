@@ -6,7 +6,8 @@
 // O arquivo é baixado automaticamente do OneDrive pelo GitHub Actions
 // e salvo em /data/Panorama_empresas.xlsx no repositório.
 // O dashboard sempre lê desse caminho relativo — sem CORS, sem proxy.
-const ONEDRIVE_URL = 'data/Panorama_empresas.xlsx';
+const GOOGLE_SHEET_URL =
+  'https://docs.google.com/spreadsheets/d/13LX4-3YPRaAXu9E40uXDDwx6N-BDUzQE/export?format=xlsx';;
 
 // ── Estado global ──────────────────────────────────
 let DATA = { panorama: [], saldo: [], fluxo: [], lavoura: [], contratos: [] };
@@ -36,48 +37,72 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(updateClock, 1000);
   initCharts();
   setupNavHighlight();
-  autoLoadFromOneDrive();
-  setInterval(autoLoadFromOneDrive, 60 * 60 * 1000); // atualiza a cada 1 hora
+  autoLoadFromGoogleDrive();
+  setInterval(autoLoadFromGoogleDrive, 60 * 60 * 1000); // atualiza a cada 1 hora
   fetchMarketData();
   setInterval(fetchMarketData, 15 * 60 * 1000);
 });
 
-// ── Carga automática do OneDrive ───────────────────
-async function autoLoadFromOneDrive() {
+// ── Carga automática do Google Sheets ──────────────
+async function autoLoadFromGoogleDrive() {
   const badge = document.getElementById('gfBadge');
+
   if (badge) badge.textContent = 'Atualizando...';
+
   showLoading(true);
+
   try {
-    // Busca via proxy Cloudflare Worker (contorna bloqueio CORS do OneDrive)
-    const res = await fetch(ONEDRIVE_URL);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const res = await fetch(GOOGLE_SHEET_URL, {
+      method: 'GET',
+      cache: 'no-store'
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
     const buf = await res.arrayBuffer();
-    const wb  = XLSX.read(buf, { type: 'array', cellDates: true });
-    DATA.panorama  = sheetToArray(wb, 'PANORAMA');
-    DATA.lavoura   = sheetToArray(wb, 'LAVOURA');
+
+    const wb = XLSX.read(buf, {
+      type: 'array',
+      cellDates: true
+    });
+
+    DATA.panorama = sheetToArray(wb, 'PANORAMA');
+    DATA.lavoura = sheetToArray(wb, 'LAVOURA');
     DATA.contratos = sheetToArray(wb, 'CONTRATOS');
-    PARSED.panorama  = parsePanorama();
-    PARSED.lavoura   = parseLavoura();
+
+    PARSED.panorama = parsePanorama();
+    PARSED.lavoura = parseLavoura();
     PARSED.contratos = parseContratos();
-    FILTRO_EMPRESA   = 'TODAS';
+
+    FILTRO_EMPRESA = 'TODAS';
+
     buildFilterChips(PARSED.panorama.empresas);
     initSafraTabs();
     initContratoSafraTabs();
     refreshAll();
-    const now = new Date();
-    if (badge) badge.textContent = 'OneDrive · ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  } catch (err) {
-    console.warn('Falha ao carregar OneDrive:', err);
-    if (badge) badge.textContent = 'Upload manual necessário';
-  }
-  showLoading(false);
-}
 
-function updateClock() {
-  const now = new Date();
-  const el = document.getElementById('headerDate');
-  if (el) el.textContent = now.toLocaleDateString('pt-BR') + ' ' +
-    now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const now = new Date();
+
+    if (badge) {
+      badge.textContent =
+        'Google Drive · ' +
+        now.toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+    }
+
+  } catch (err) {
+    console.error('Falha ao carregar Google Sheets:', err);
+
+    if (badge) {
+      badge.textContent = 'Erro ao conectar Google Drive';
+    }
+  }
+
+  showLoading(false);
 }
 
 // ── Sidebar / UI controls ─────────────────────────
