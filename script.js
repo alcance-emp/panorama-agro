@@ -201,6 +201,10 @@ var fBRL = function(v) {
   return (v == null || isNaN(v)) ? '—' :
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v);
 };
+var fBRL2 = function(v) {
+  return (v == null || isNaN(v)) ? '—' :
+    new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+};
 var fUSD = function(v) {
   return (v == null || isNaN(v)) ? '—' :
     new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v);
@@ -1211,31 +1215,41 @@ function exportContratosExcel() {
   var items = contratosFiltrados();
   if (!items.length) { alert('Nenhum contrato para exportar.'); return; }
 
-  var headers = ['Empresa','Tipo','Cultura','Safra','Nº Contrato','Cliente / Fornecedor',
+  var headers = [
+    'Empresa','Cultura','Safra','Nº Contrato','Cliente / Fornecedor',
+    'Preço Médio (R$/sc)','Moeda','Valor Contrato (R$)',
+    'Prazo Embarque','Data Pagto','Frete','Fazenda',
     'Qt. Contrato (sc)','Qt. Entregue (sc)','Qt. A Entregar (sc)',
-    'Qt. Faturada (sc)','Qt. A Faturar (sc)','Qt. Fixada (sc)','% Atendimento'];
+    'Qt. Faturada (sc)','Qt. A Faturar (sc)','Qt. Fixada (sc)','% Atendimento'
+  ];
 
   var rows = items.map(function(c) {
     return [
-      c.empresa     || '',
-      c.tipo        || '',
-      c.cultura     || '',
-      c.safra       || '',
-      c.numContrato || '',
-      c.cliente     || '',
-      c.qtContrato  != null ? c.qtContrato  : '',
-      c.qtEntregue  != null ? c.qtEntregue  : '',
-      c.qtAEntregar != null ? c.qtAEntregar : '',
-      c.qtFaturada  != null ? c.qtFaturada  : '',
-      c.qtAFaturar  != null ? c.qtAFaturar  : '',
-      c.qtFixada    != null ? c.qtFixada    : '',
-      c.pctAtend    != null ? (c.pctAtend / 100) : '',
+      c.empresa        || '',
+      c.cultura        || '',
+      c.safra          || '',
+      c.numContrato    || '',
+      c.cliente        || '',
+      c.precoMedio     != null ? c.precoMedio     : '',
+      c.moeda          || '',
+      c.valorContrato  != null ? c.valorContrato  : '',
+      c.prazoEmbarque  ? fDate(c.prazoEmbarque) : '',
+      c.dataPgto       ? fDate(c.dataPgto)      : '',
+      c.frete          || '',
+      c.fazenda        || '',
+      c.qtContrato     != null ? c.qtContrato     : '',
+      c.qtEntregue     != null ? c.qtEntregue     : '',
+      c.qtAEntregar    != null ? c.qtAEntregar    : '',
+      c.qtFaturada     != null ? c.qtFaturada     : '',
+      c.qtAFaturar     != null ? c.qtAFaturar     : '',
+      c.qtFixada       != null ? c.qtFixada       : '',
+      c.pctAtend       != null ? (c.pctAtend / 100) : '',
     ];
   });
 
   var wb2 = XLSX.utils.book_new();
   var ws  = XLSX.utils.aoa_to_sheet([headers].concat(rows));
-  ws['!cols'] = headers.map(function(h, i) { return { wch: i >= 6 ? 16 : 22 }; });
+  ws['!cols'] = headers.map(function(h, i) { return { wch: i >= 12 ? 16 : 22 }; });
   XLSX.utils.book_append_sheet(wb2, ws, 'Contratos');
   var safra = (document.getElementById('filtroContratoSafraExtra') || {}).value || SAFRA_CONTRATO || 'contratos';
   XLSX.writeFile(wb2, 'contratos_' + safra.replace('/','_') + '.xlsx');
@@ -1394,8 +1408,8 @@ function renderContratosTable() {
   var tbody = document.getElementById('contratosBody');
   if (!tbody) return;
   tbody.innerHTML = '';
-  var NCOL = 13;
-  var dash  = '<span style="color:var(--text-muted)">\u2014</span>';
+  var NCOL = 19;
+  var dash = '<span style="color:var(--text-muted)">—</span>';
 
   var items = contratosFiltrados();
 
@@ -1406,76 +1420,108 @@ function renderContratosTable() {
     return;
   }
 
+  // ── Célula helpers ────────────────────────────────────────────────
+  function cellNum(v)  { return v != null ? fNum(v, 0)  : dash; }
+  function cellBRL(v)  { return v != null && v !== 0 ? fBRL(v) : dash; }
+  function cellBRL2(v) { return v != null && v !== 0 ? fBRL2(v) : dash; }
+  function cellDate(v) { return v ? fDate(v) : dash; }
+  function cellStr(v)  { return v ? String(v) : dash; }
+
+  // ── Sub-linha de contrato (compartilhado entre modos) ─────────────
+  function buildSubRow(c, indent) {
+    var pct    = c.pctAtend != null ? c.pctAtend : 0;
+    var pctCls = pct >= 80 ? 'fill-green' : pct >= 40 ? 'fill-yellow' : 'fill-red';
+    var pctClr = pct >= 80 ? 'var(--green-light)' : pct >= 40 ? 'var(--yellow)' : 'var(--red)';
+    var cultCls = c.cultura === 'SOJA' ? 'cultura-soja' : c.cultura === 'MILHO' ? 'cultura-milho' : 'cultura-outro';
+    var moedaBadge = c.moeda
+      ? '<span style="font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:20px;background:rgba(46,134,222,.13);color:#1d4ed8">' + c.moeda + '</span>'
+      : dash;
+
+    var tr = document.createElement('tr');
+    tr.className = 'contrato-sub-row';
+    tr.innerHTML =
+      '<td style="' + (indent ? 'padding-left:2rem;' : '') + 'font-size:.77rem;white-space:nowrap">' + (c.empresa || '—') + '</td>' +
+      '<td><span class="cultura-badge ' + cultCls + '">' + (c.cultura || '—') + '</span></td>' +
+      '<td style="font-size:.74rem;color:var(--text-muted);white-space:nowrap">' + (c.safra || '—') + '</td>' +
+      '<td class="mono" style="font-size:.75rem;white-space:nowrap">' + (c.numContrato || '—') + '</td>' +
+      '<td style="min-width:180px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.76rem" title="' + (c.cliente || '') + '">' + (c.cliente || '—') + '</td>' +
+      '<td class="mono" style="text-align:right;white-space:nowrap">' + cellBRL2(c.precoMedio) + '</td>' +
+      '<td style="text-align:center">' + moedaBadge + '</td>' +
+      '<td class="mono" style="text-align:right;white-space:nowrap">' + cellBRL(c.valorContrato) + '</td>' +
+      '<td class="mono" style="text-align:center;white-space:nowrap">' + cellDate(c.prazoEmbarque) + '</td>' +
+      '<td class="mono" style="text-align:center;white-space:nowrap">' + cellDate(c.dataPgto) + '</td>' +
+      '<td style="white-space:nowrap">' + (c.frete ? '<span class="frete-badge">' + c.frete + '</span>' : dash) + '</td>' +
+      '<td style="font-size:.76rem;white-space:nowrap">' + cellStr(c.fazenda) + '</td>' +
+      '<td class="mono" style="text-align:right">' + cellNum(c.qtContrato)  + '</td>' +
+      '<td class="mono" style="text-align:right">' + cellNum(c.qtEntregue)  + '</td>' +
+      '<td class="mono" style="text-align:right">' + cellNum(c.qtAEntregar) + '</td>' +
+      '<td class="mono" style="text-align:right">' + cellNum(c.qtFaturada)  + '</td>' +
+      '<td class="mono" style="text-align:right">' + cellNum(c.qtAFaturar)  + '</td>' +
+      '<td class="mono" style="text-align:right">' + cellNum(c.qtFixada)    + '</td>' +
+      '<td>' + (c.pctAtend != null
+        ? '<div style="display:flex;align-items:center;gap:5px;min-width:85px">' +
+          '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + pctCls +
+          '" style="width:' + Math.min(pct, 100).toFixed(1) + '%"></div></div>' +
+          '<span style="font-size:.73rem;font-weight:700;color:' + pctClr + '">' + fPct(pct) + '</span></div>'
+        : dash) + '</td>';
+    return tr;
+  }
+
+  // ── AGRUPADO por empresa ──────────────────────────────────────────
   if (AGRUPAR_EMPRESAS) {
     var byEmp = {};
+    var empOrder = [];
     items.forEach(function(c) {
-      var emp = c.empresa || '\u2014';
-      if (!byEmp[emp]) byEmp[emp] = [];
+      var emp = c.empresa || '—';
+      if (!byEmp[emp]) { byEmp[emp] = []; empOrder.push(emp); }
       byEmp[emp].push(c);
     });
+    // preserva ordem original (já ordenada pelo sort de empresas no parser)
+    empOrder.sort();
 
-    Object.keys(byEmp).sort().forEach(function(emp) {
+    empOrder.forEach(function(emp) {
       var contratos = byEmp[emp];
-      var totC  = contratos.reduce(function(s,c){ return s+(c.qtContrato  ||0); },0);
-      var totE  = contratos.reduce(function(s,c){ return s+(c.qtEntregue  ||0); },0);
-      var totAE = contratos.reduce(function(s,c){ return s+(c.qtAEntregar ||0); },0);
-      var totF  = contratos.reduce(function(s,c){ return s+(c.qtFaturada  ||0); },0);
-      var totAF = contratos.reduce(function(s,c){ return s+(c.qtAFaturar  ||0); },0);
-      var totFix= contratos.reduce(function(s,c){ return s+(c.qtFixada    ||0); },0);
+      var totC   = contratos.reduce(function(s,c){ return s+(c.qtContrato  ||0); },0);
+      var totE   = contratos.reduce(function(s,c){ return s+(c.qtEntregue  ||0); },0);
+      var totAE  = contratos.reduce(function(s,c){ return s+(c.qtAEntregar ||0); },0);
+      var totF   = contratos.reduce(function(s,c){ return s+(c.qtFaturada  ||0); },0);
+      var totAF  = contratos.reduce(function(s,c){ return s+(c.qtAFaturar  ||0); },0);
+      var totFix = contratos.reduce(function(s,c){ return s+(c.qtFixada    ||0); },0);
       var totPct = totC > 0 ? (totE / totC * 100) : 0;
       var totPctCls = totPct >= 80 ? 'fill-green' : totPct >= 40 ? 'fill-yellow' : 'fill-red';
 
+      // Linha de grupo
       var groupRow = document.createElement('tr');
       groupRow.className = 'contrato-group-row';
       groupRow.style.cursor = 'pointer';
       groupRow.innerHTML =
-        '<td colspan="2"><span class="group-toggle-icon"><i class="fas fa-chevron-down"></i></span>' +
-        '<strong>' + emp + '</strong> <span class="group-count">' + contratos.length + ' contrato(s)</span></td>' +
-        '<td colspan="2" style="color:var(--text-muted);font-size:.73rem"></td>' +
-        '<td class="mono" style="text-align:right"><strong>' + fNum(totC,0)  + '</strong></td>' +
-        '<td class="mono" style="text-align:right"><strong>' + fNum(totE,0)  + '</strong></td>' +
-        '<td class="mono" style="text-align:right"><strong>' + fNum(totAE,0) + '</strong></td>' +
-        '<td class="mono" style="text-align:right"><strong>' + fNum(totF,0)  + '</strong></td>' +
-        '<td class="mono" style="text-align:right"><strong>' + fNum(totAF,0) + '</strong></td>' +
-        '<td class="mono" style="text-align:right"><strong>' + fNum(totFix,0)+ '</strong></td>' +
-        '<td colspan="3"><div style="display:flex;align-items:center;gap:6px;min-width:90px">' +
+        '<td colspan="5" style="white-space:nowrap">' +
+          '<span class="group-toggle-icon"><i class="fas fa-chevron-right"></i></span>' +
+          '<strong>' + emp + '</strong>' +
+          ' <span class="group-count">' + contratos.length + ' contrato(s)</span>' +
+        '</td>' +
+        '<td colspan="7" style="color:var(--text-muted);font-size:.72rem;font-style:italic">Clique para expandir</td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totC,0)   + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totE,0)   + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totAE,0)  + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totF,0)   + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totAF,0)  + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totFix,0) + '</strong></td>' +
+        '<td><div style="display:flex;align-items:center;gap:6px;min-width:85px">' +
           '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + totPctCls +
           '" style="width:' + Math.min(totPct,100).toFixed(1) + '%"></div></div>' +
           '<span style="font-size:.74rem;font-weight:700">' + fPct(totPct) + '</span></div></td>';
       tbody.appendChild(groupRow);
 
-      var subRows = [];
-      contratos.forEach(function(c) {
-        var pct    = c.pctAtend != null ? c.pctAtend : 0;
-        var pctCls = pct >= 80 ? 'fill-green' : pct >= 40 ? 'fill-yellow' : 'fill-red';
-        var pctClr = pct >= 80 ? 'var(--green-light)' : pct >= 40 ? 'var(--yellow)' : 'var(--red)';
-        var cultCls = c.cultura === 'SOJA' ? 'cultura-soja' : c.cultura === 'MILHO' ? 'cultura-milho' : 'cultura-outro';
-        var tipoBadge = c.tipo ? '<span class="frete-badge" style="font-size:.68rem">' + c.tipo + '</span>' : dash;
-        var tr = document.createElement('tr');
-        tr.className = 'contrato-sub-row';
-        tr.innerHTML =
-          '<td style="padding-left:1.8rem;font-size:.77rem">' + (c.empresa||'\u2014') + '</td>' +
-          '<td>' + tipoBadge + '</td>' +
-          '<td><span class="cultura-badge ' + cultCls + '">' + (c.cultura||'\u2014') + '</span></td>' +
-          '<td style="font-size:.75rem;color:var(--text-muted)">' + (c.safra||'\u2014') + '</td>' +
-          '<td class="mono" style="font-size:.76rem">' + (c.numContrato||'\u2014') + '</td>' +
-          '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.76rem" title="' + (c.cliente||'') + '">' + (c.cliente||'\u2014') + '</td>' +
-          '<td class="mono" style="text-align:right">' + (c.qtContrato  != null ? fNum(c.qtContrato,0)  : dash) + '</td>' +
-          '<td class="mono" style="text-align:right">' + (c.qtEntregue  != null ? fNum(c.qtEntregue,0)  : dash) + '</td>' +
-          '<td class="mono" style="text-align:right">' + (c.qtAEntregar != null ? fNum(c.qtAEntregar,0) : dash) + '</td>' +
-          '<td class="mono" style="text-align:right">' + (c.qtFaturada  != null ? fNum(c.qtFaturada,0)  : dash) + '</td>' +
-          '<td class="mono" style="text-align:right">' + (c.qtAFaturar  != null ? fNum(c.qtAFaturar,0)  : dash) + '</td>' +
-          '<td class="mono" style="text-align:right">' + (c.qtFixada    != null ? fNum(c.qtFixada,0)    : dash) + '</td>' +
-          '<td>' + (c.pctAtend != null
-            ? '<div style="display:flex;align-items:center;gap:5px;min-width:80px">' +
-              '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + pctCls +
-              '" style="width:' + Math.min(pct,100).toFixed(1) + '%"></div></div>' +
-              '<span style="font-size:.73rem;font-weight:700;color:' + pctClr + '">' + fPct(pct) + '</span></div>'
-            : dash) + '</td>';
+      // Sub-linhas — começam escondidas (collapsed)
+      var subRows = contratos.map(function(c) {
+        var tr = buildSubRow(c, true);
+        tr.style.display = 'none';
         tbody.appendChild(tr);
-        subRows.push(tr);
+        return tr;
       });
 
+      // Toggle
       groupRow.addEventListener('click', function() {
         var hidden = subRows[0] && subRows[0].style.display === 'none';
         subRows.forEach(function(r) { r.style.display = hidden ? '' : 'none'; });
@@ -1485,60 +1531,39 @@ function renderContratosTable() {
     });
 
   } else {
+    // ── DESAGRUPADO ───────────────────────────────────────────────
     items.forEach(function(c) {
-      var pct    = c.pctAtend != null ? c.pctAtend : 0;
-      var pctCls = pct >= 80 ? 'fill-green' : pct >= 40 ? 'fill-yellow' : 'fill-red';
-      var pctClr = pct >= 80 ? 'var(--green-light)' : pct >= 40 ? 'var(--yellow)' : 'var(--red)';
-      var cultCls = c.cultura === 'SOJA' ? 'cultura-soja' : c.cultura === 'MILHO' ? 'cultura-milho' : 'cultura-outro';
-      var tipoBadge = c.tipo ? '<span class="frete-badge" style="font-size:.68rem">' + c.tipo + '</span>' : dash;
-      var tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td><strong>' + (c.empresa||'\u2014') + '</strong></td>' +
-        '<td>' + tipoBadge + '</td>' +
-        '<td><span class="cultura-badge ' + cultCls + '">' + (c.cultura||'\u2014') + '</span></td>' +
-        '<td style="font-size:.75rem;color:var(--text-muted)">' + (c.safra||'\u2014') + '</td>' +
-        '<td class="mono" style="font-size:.76rem">' + (c.numContrato||'\u2014') + '</td>' +
-        '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.76rem" title="' + (c.cliente||'') + '">' + (c.cliente||'\u2014') + '</td>' +
-        '<td class="mono" style="text-align:right">' + (c.qtContrato  != null ? fNum(c.qtContrato,0)  : dash) + '</td>' +
-        '<td class="mono" style="text-align:right">' + (c.qtEntregue  != null ? fNum(c.qtEntregue,0)  : dash) + '</td>' +
-        '<td class="mono" style="text-align:right">' + (c.qtAEntregar != null ? fNum(c.qtAEntregar,0) : dash) + '</td>' +
-        '<td class="mono" style="text-align:right">' + (c.qtFaturada  != null ? fNum(c.qtFaturada,0)  : dash) + '</td>' +
-        '<td class="mono" style="text-align:right">' + (c.qtAFaturar  != null ? fNum(c.qtAFaturar,0)  : dash) + '</td>' +
-        '<td class="mono" style="text-align:right">' + (c.qtFixada    != null ? fNum(c.qtFixada,0)    : dash) + '</td>' +
-        '<td>' + (c.pctAtend != null
-          ? '<div style="display:flex;align-items:center;gap:5px;min-width:80px">' +
-            '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + pctCls +
-            '" style="width:' + Math.min(pct,100).toFixed(1) + '%"></div></div>' +
-            '<span style="font-size:.73rem;font-weight:700;color:' + pctClr + '">' + fPct(pct) + '</span></div>'
-          : dash) + '</td>';
-      tbody.appendChild(tr);
+      tbody.appendChild(buildSubRow(c, false));
     });
   }
 
-  // Totais
-  var totC2  = items.reduce(function(s,c){ return s+(c.qtContrato  ||0); },0);
-  var totE2  = items.reduce(function(s,c){ return s+(c.qtEntregue  ||0); },0);
-  var totAE2 = items.reduce(function(s,c){ return s+(c.qtAEntregar ||0); },0);
-  var totF2  = items.reduce(function(s,c){ return s+(c.qtFaturada  ||0); },0);
-  var totAF2 = items.reduce(function(s,c){ return s+(c.qtAFaturar  ||0); },0);
-  var totFix2= items.reduce(function(s,c){ return s+(c.qtFixada    ||0); },0);
-  var totPct2 = totC2 > 0 ? (totE2 / totC2 * 100) : 0;
-  var totPctCls2 = totPct2 >= 80 ? 'fill-green' : totPct2 >= 40 ? 'fill-yellow' : 'fill-red';
+  // ── Linha de TOTAIS ───────────────────────────────────────────────
+  var tC  = items.reduce(function(s,c){ return s+(c.qtContrato  ||0); },0);
+  var tE  = items.reduce(function(s,c){ return s+(c.qtEntregue  ||0); },0);
+  var tAE = items.reduce(function(s,c){ return s+(c.qtAEntregar ||0); },0);
+  var tF  = items.reduce(function(s,c){ return s+(c.qtFaturada  ||0); },0);
+  var tAF = items.reduce(function(s,c){ return s+(c.qtAFaturar  ||0); },0);
+  var tFix= items.reduce(function(s,c){ return s+(c.qtFixada    ||0); },0);
+  var tVT = items.reduce(function(s,c){ return s+(c.valorContrato||0); },0);
+  var tPct = tC > 0 ? (tE / tC * 100) : 0;
+  var tPctCls = tPct >= 80 ? 'fill-green' : tPct >= 40 ? 'fill-yellow' : 'fill-red';
 
   var tfr = document.createElement('tr');
   tfr.className = 'contrato-total-row';
   tfr.innerHTML =
-    '<td colspan="4"><strong>TOTAL &mdash; ' + items.length + ' contrato(s)</strong></td>' +
-    '<td class="mono" style="text-align:right"><strong>' + fNum(totC2,0)  + '</strong></td>' +
-    '<td class="mono" style="text-align:right"><strong>' + fNum(totE2,0)  + '</strong></td>' +
-    '<td class="mono" style="text-align:right"><strong>' + fNum(totAE2,0) + '</strong></td>' +
-    '<td class="mono" style="text-align:right"><strong>' + fNum(totF2,0)  + '</strong></td>' +
-    '<td class="mono" style="text-align:right"><strong>' + fNum(totAF2,0) + '</strong></td>' +
-    '<td class="mono" style="text-align:right"><strong>' + fNum(totFix2,0)+ '</strong></td>' +
-    '<td colspan="3"><div style="display:flex;align-items:center;gap:5px;min-width:80px">' +
-      '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + totPctCls2 +
-      '" style="width:' + Math.min(totPct2,100).toFixed(1) + '%"></div></div>' +
-      '<span style="font-size:.73rem;font-weight:700">' + fPct(totPct2) + '</span></div></td>';
+    '<td colspan="5"><strong>TOTAL — ' + items.length + ' contrato(s)</strong></td>' +
+    '<td colspan="2" class="mono" style="text-align:right">' + (tVT > 0 ? '<strong>' + fBRL(tVT) + '</strong>' : '') + '</td>' +
+    '<td colspan="5"></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(tC,0)   + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(tE,0)   + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(tAE,0)  + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(tF,0)   + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(tAF,0)  + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(tFix,0) + '</strong></td>' +
+    '<td><div style="display:flex;align-items:center;gap:5px;min-width:85px">' +
+      '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + tPctCls +
+      '" style="width:' + Math.min(tPct,100).toFixed(1) + '%"></div></div>' +
+      '<span style="font-size:.73rem;font-weight:700">' + fPct(tPct) + '</span></div></td>';
   tbody.appendChild(tfr);
 }
 

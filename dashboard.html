@@ -186,13 +186,37 @@
       vertical-align: middle;
     }
     #contratosTable th { font-size: 0.73rem !important; }
-    .contrato-table-wrap { overflow-x: auto; width: 100%; }
 
-    /* ── Tabela Contratos — cabeçalhos com cor uniforme ── */
+    /* ── Tabela Contratos — scroll horizontal sempre visível ── */
+    .contrato-table-wrap {
+      overflow-x: scroll !important;
+      overflow-y: visible;
+      -webkit-overflow-scrolling: touch;
+      width: 100%;
+      padding-bottom: 6px;
+    }
+    .contrato-table-wrap::-webkit-scrollbar { height: 8px; }
+    .contrato-table-wrap::-webkit-scrollbar-track {
+      background: var(--bg-sidebar);
+      border-radius: 4px;
+    }
+    .contrato-table-wrap::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+    .contrato-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    #contratosTable { min-width: 1900px; }
+
+    /* Cabeçalho sticky no scroll vertical */
     #contratosTable thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
       background: var(--bg-sidebar) !important;
       color: var(--text-muted) !important;
       border-left: none !important;
+      border-bottom: 2px solid var(--border) !important;
     }
     /* Destaque sutil apenas nas células de dados das colunas novas */
     #contratosTable tbody td.ta-col {
@@ -590,23 +614,29 @@
             </button>
           </div>
         </div>
-        <div class="table-responsive contrato-table-wrap">
+        <div class="table-responsive contrato-table-wrap" style="overflow-x:scroll;overflow-y:visible;padding-bottom:8px">
           <table class="table contrato-table" id="contratosTable" style="width:100%;font-size:0.78rem;white-space:nowrap">
             <thead>
               <tr>
-                <th>Empresa</th>
-                <th>Tipo</th>
-                <th>Cultura</th>
-                <th>Safra</th>
-                <th>Nº Contrato</th>
-                <th>Cliente / Fornecedor</th>
-                <th style="text-align:right">Qt. Contrato (sc)</th>
-                <th style="text-align:right">Qt. Entregue (sc)</th>
-                <th style="text-align:right">Qt. A Entregar (sc)</th>
-                <th style="text-align:right">Qt. Faturada (sc)</th>
-                <th style="text-align:right">Qt. A Faturar (sc)</th>
-                <th style="text-align:right">Qt. Fixada (sc)</th>
-                <th style="text-align:center">% Atendimento</th>
+                <th style="min-width:120px">Empresa</th>
+                <th style="min-width:80px">Cultura</th>
+                <th style="min-width:80px">Safra</th>
+                <th style="min-width:140px">Nº Contrato</th>
+                <th style="min-width:200px">Cliente / Fornecedor</th>
+                <th style="min-width:110px;text-align:right">Preço Médio (R$/sc)</th>
+                <th style="min-width:80px;text-align:center">Moeda</th>
+                <th style="min-width:130px;text-align:right">Valor Contrato (R$)</th>
+                <th style="min-width:110px;text-align:center">Prazo Embarque</th>
+                <th style="min-width:110px;text-align:center">Data Pagto</th>
+                <th style="min-width:100px">Frete</th>
+                <th style="min-width:120px">Fazenda</th>
+                <th style="min-width:110px;text-align:right">Qt. Contrato (sc)</th>
+                <th style="min-width:110px;text-align:right">Qt. Entregue (sc)</th>
+                <th style="min-width:120px;text-align:right">Qt. A Entregar (sc)</th>
+                <th style="min-width:110px;text-align:right">Qt. Faturada (sc)</th>
+                <th style="min-width:110px;text-align:right">Qt. A Faturar (sc)</th>
+                <th style="min-width:110px;text-align:right">Qt. Fixada (sc)</th>
+                <th style="min-width:120px;text-align:center">% Atendimento</th>
               </tr>
             </thead>
             <tbody id="contratosBody"></tbody>
