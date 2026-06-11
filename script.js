@@ -1219,8 +1219,7 @@ function exportContratosExcel() {
     'Empresa','Cultura','Safra','Nº Contrato','Cliente / Fornecedor',
     'Preço Médio (R$/sc)','Moeda','Valor Contrato (R$)',
     'Prazo Embarque','Data Pagto','Frete','Fazenda',
-    'Qt. Contrato (sc)','Qt. Entregue (sc)','Qt. A Entregar (sc)',
-    'Qt. Faturada (sc)','Qt. A Faturar (sc)','Qt. Fixada (sc)','% Atendimento'
+    'Qt. Contrato (sc)','Qt. Entregue (sc)','Qt. A Entregar (sc)','% Atendimento'
   ];
 
   var rows = items.map(function(c) {
@@ -1240,9 +1239,6 @@ function exportContratosExcel() {
       c.qtContrato     != null ? c.qtContrato     : '',
       c.qtEntregue     != null ? c.qtEntregue     : '',
       c.qtAEntregar    != null ? c.qtAEntregar    : '',
-      c.qtFaturada     != null ? c.qtFaturada     : '',
-      c.qtAFaturar     != null ? c.qtAFaturar     : '',
-      c.qtFixada       != null ? c.qtFixada       : '',
       c.pctAtend       != null ? (c.pctAtend / 100) : '',
     ];
   });
@@ -1455,9 +1451,6 @@ function renderContratosTable() {
       '<td class="mono" style="text-align:right">' + cellNum(c.qtContrato)  + '</td>' +
       '<td class="mono" style="text-align:right">' + cellNum(c.qtEntregue)  + '</td>' +
       '<td class="mono" style="text-align:right">' + cellNum(c.qtAEntregar) + '</td>' +
-      '<td class="mono" style="text-align:right">' + cellNum(c.qtFaturada)  + '</td>' +
-      '<td class="mono" style="text-align:right">' + cellNum(c.qtAFaturar)  + '</td>' +
-      '<td class="mono" style="text-align:right">' + cellNum(c.qtFixada)    + '</td>' +
       '<td>' + (c.pctAtend != null
         ? '<div style="display:flex;align-items:center;gap:5px;min-width:85px">' +
           '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + pctCls +
@@ -1504,9 +1497,6 @@ function renderContratosTable() {
         '<td class="mono" style="text-align:right"><strong>' + fNum(totC,0)   + '</strong></td>' +
         '<td class="mono" style="text-align:right"><strong>' + fNum(totE,0)   + '</strong></td>' +
         '<td class="mono" style="text-align:right"><strong>' + fNum(totAE,0)  + '</strong></td>' +
-        '<td class="mono" style="text-align:right"><strong>' + fNum(totF,0)   + '</strong></td>' +
-        '<td class="mono" style="text-align:right"><strong>' + fNum(totAF,0)  + '</strong></td>' +
-        '<td class="mono" style="text-align:right"><strong>' + fNum(totFix,0) + '</strong></td>' +
         '<td><div style="display:flex;align-items:center;gap:6px;min-width:85px">' +
           '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + totPctCls +
           '" style="width:' + Math.min(totPct,100).toFixed(1) + '%"></div></div>' +
@@ -1557,9 +1547,6 @@ function renderContratosTable() {
     '<td class="mono" style="text-align:right"><strong>' + fNum(tC,0)   + '</strong></td>' +
     '<td class="mono" style="text-align:right"><strong>' + fNum(tE,0)   + '</strong></td>' +
     '<td class="mono" style="text-align:right"><strong>' + fNum(tAE,0)  + '</strong></td>' +
-    '<td class="mono" style="text-align:right"><strong>' + fNum(tF,0)   + '</strong></td>' +
-    '<td class="mono" style="text-align:right"><strong>' + fNum(tAF,0)  + '</strong></td>' +
-    '<td class="mono" style="text-align:right"><strong>' + fNum(tFix,0) + '</strong></td>' +
     '<td><div style="display:flex;align-items:center;gap:5px;min-width:85px">' +
       '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + tPctCls +
       '" style="width:' + Math.min(tPct,100).toFixed(1) + '%"></div></div>' +
