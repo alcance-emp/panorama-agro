@@ -23,9 +23,10 @@ function buildSheetUrls() {
 var AUTO_REFRESH_INTERVAL = 60 * 60 * 1000; // 1 hora
 
 // ── Estado global ──────────────────────────────────
-var DATA = { panorama: [], saldo: [], fluxo: [], lavoura: [], contratos: [] };
-var PARSED = { panorama: null, lavoura: [], contratos: [] };
+var DATA = { panorama: [], saldo: [], fluxo: [], lavoura: [], contratos: [], tradeAlcance: [] };
+var PARSED = { panorama: null, lavoura: [], contratos: [], fluxo: [], tradeAlcance: [] };
 var FILTRO_EMPRESA = 'TODAS';
+var FILTRO_SAFRA_GLOBAL = 'TODAS'; // novo filtro global de safra
 var SAFRA_SOJA  = null;
 var SAFRA_MILHO = null;
 var SAFRA_CONTRATO = null;
@@ -145,16 +146,21 @@ function fetchWithTimeout(url, ms) {
 
 // Processa workbook (usado tanto no auto-load quanto no import manual)
 function processWorkbook(wb) {
-  DATA.panorama  = sheetToArray(wb, 'PANORAMA');
-  DATA.lavoura   = sheetToArray(wb, 'LAVOURA');
-  DATA.contratos = sheetToArray(wb, 'CONTRATOS');
+  DATA.panorama    = sheetToArray(wb, 'PANORAMA');
+  DATA.lavoura     = sheetToArray(wb, 'LAVOURA');
+  DATA.contratos   = sheetToArray(wb, 'CONTRATOS');
+  DATA.fluxo       = sheetToArray(wb, 'FLUXO');
+  DATA.tradeAlcance = sheetToArray(wb, 'TRADE_ALCANCE');
 
-  PARSED.panorama  = parsePanorama();
-  PARSED.lavoura   = parseLavoura();
-  PARSED.contratos = parseContratos();
+  PARSED.panorama    = parsePanorama();
+  PARSED.lavoura     = parseLavoura();
+  PARSED.contratos   = parseContratos();
+  PARSED.fluxo       = parseFluxo();
+  PARSED.tradeAlcance = parseTradeAlcance();
 
   FILTRO_EMPRESA = 'TODAS';
   buildFilterChips(PARSED.panorama.empresas);
+  buildSafraGlobalChips();
   initSafraTabs();
   initContratoSafraTabs();
   refreshAll();
@@ -204,7 +210,10 @@ var fNum = function(v, d) {
   return (v == null || isNaN(v)) ? '—' :
     new Intl.NumberFormat('pt-BR', { maximumFractionDigits: d }).format(v);
 };
-var fPct = function(v) { return (v == null || isNaN(v)) ? '—%' : v.toFixed(1) + '%'; };
+var fPct = function(v) {
+  if (v == null || isNaN(v)) return '—%';
+  return v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+};
 function fDate(v) {
   if (!v) return '—';
   if (v instanceof Date) return v.toLocaleDateString('pt-BR');
@@ -216,6 +225,29 @@ function parseNum(v) {
   if (v == null || v === '' || v === '-') return 0;
   if (typeof v === 'number') return v;
   return parseFloat(String(v).replace(/\./g, '').replace(',', '.')) || 0;
+}
+
+// Formata valores de ORIGEM: se numérico, exibe decimal PT-BR (sem símbolo de moeda); senão texto
+function formatOrigem(v) {
+  if (!v && v !== 0) return '—';
+  var s = String(v).trim();
+  if (s === '' || s === '-' || s === '—') return '—';
+  // Tenta interpretar como número
+  var raw = s.replace(/\s/g, '');
+  var n;
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(raw)) {
+    n = parseFloat(raw.replace(/\./g, '').replace(',', '.'));
+  } else if (/^\d+(,\d*)?$/.test(raw)) {
+    n = parseFloat(raw.replace(',', '.'));
+  } else if (/^\d+(\.\d+)?$/.test(raw)) {
+    n = parseFloat(raw);
+  } else {
+    n = NaN;
+  }
+  if (!isNaN(n)) {
+    return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return s;
 }
 
 // ── Leitura Excel (importação manual) ─────────────
@@ -332,36 +364,295 @@ function parseLavoura() {
 function parseContratos() {
   var rows = DATA.contratos;
   var items = [];
+  if (!rows || !rows.length) return items;
+
+  // ── Normalização ─────────────────────────────────────────────────
+  function norm(s) {
+    return String(s || '').trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase().replace(/\s+/g, ' ');
+  }
+
+  // ── Detecta linha de cabeçalho ────────────────────────────────────
+  var headerRow = -1;
+  for (var h = 0; h < Math.min(rows.length, 5); h++) {
+    var r0 = rows[h];
+    if (!r0) continue;
+    var nonEmpty = r0.filter(function(c) { return c != null && String(c).trim() !== ''; });
+    var textCount = nonEmpty.filter(function(c) { return isNaN(parseFloat(String(c))); }).length;
+    if (textCount >= Math.ceil(nonEmpty.length * 0.5)) { headerRow = h; break; }
+  }
+  var startRow = headerRow >= 0 ? headerRow + 1 : 1;
+  var header   = headerRow >= 0 ? rows[headerRow].map(norm) : [];
+
+  // ── Busca coluna por alias exato ou parcial ────────────────────────
+  function col() {
+    var aliases = Array.prototype.slice.call(arguments).map(norm);
+    // Busca exata
+    for (var a = 0; a < aliases.length; a++) {
+      var idx = header.indexOf(aliases[a]);
+      if (idx >= 0) return idx;
+    }
+    // Busca parcial (header contém o alias)
+    for (var b = 0; b < aliases.length; b++) {
+      for (var c = 0; c < header.length; c++) {
+        if (header[c] && header[c].indexOf(aliases[b]) >= 0) return c;
+      }
+    }
+    return -1;
+  }
+
+  // ── Mapeamento exato baseado na planilha real ──────────────────────
+  // Header real: Nome da Origem | Tipo Ent/Saida | Cliente/Fornecedor |
+  //              Número Contrato | Qt. Contrato (SC) | Qt. Entregue (SC) |
+  //              Qt. A Entregar (SC) | Qt. Faturada (SC) | Qt. A Faturar (SC) |
+  //              Qt. Fixada (SC) | Cultura | Safra
+  var iEmpresa  = col('NOME DA ORIGEM', 'NOME ORIGEM', 'ORIGEM', 'EMPRESA', 'FAZENDA', 'ENTIDADE', 'PRODUTOR');
+  var iTipo     = col('TIPO ENT/SAIDA', 'TIPO ENT SAIDA', 'TIPO', 'TIPO CONTRATO', 'MODALIDADE');
+  var iCliente  = col('CLIENTE/FORNECEDOR', 'CLIENTE FORNECEDOR', 'CLIENTE', 'COMPRADOR', 'TRADING', 'FORNECEDOR');
+  var iNumCont  = col('NUMERO CONTRATO', 'NUMERO DO CONTRATO', 'NUM CONTRATO', 'CONTRATO', 'NRO CONTRATO', 'NR CONTRATO', 'COD CONTRATO');
+  var iQtCont   = col('QT. CONTRATO (SC)', 'QT CONTRATO (SC)', 'QT CONTRATO', 'QTD CONTRATO', 'QUANTIDADE CONTRATO', 'SACAS CONTRATO', 'QT TOTAL');
+  var iQtEntr   = col('QT. ENTREGUE (SC)', 'QT ENTREGUE (SC)', 'QT ENTREGUE', 'QTD ENTREGUE', 'ENTREGUE');
+  var iQtAEntr  = col('QT. A ENTREGAR (SC)', 'QT A ENTREGAR (SC)', 'QT A ENTREGAR', 'QTD A ENTREGAR', 'A ENTREGAR', 'SALDO A ENTREGAR');
+  var iQtFat    = col('QT. FATURADA (SC)', 'QT FATURADA (SC)', 'QT FATURADA', 'QTD FATURADA', 'FATURADO');
+  var iQtAFat   = col('QT. A FATURAR (SC)', 'QT A FATURAR (SC)', 'QT A FATURAR', 'QTD A FATURAR', 'A FATURAR', 'SALDO A FATURAR');
+  var iQtFixed  = col('QT. FIXADA (SC)', 'QT FIXADA (SC)', 'QT FIXADA', 'QTD FIXADA', 'FIXADO', 'FIXADA');
+  var iCultura  = col('CULTURA', 'PRODUTO', 'GRAO', 'GRAOS', 'COMMODITY');
+  var iSafra    = col('SAFRA', 'ANO SAFRA', 'PERIODO', 'ANO');
+  // Colunas extras (ainda não presentes na planilha — prontas para quando forem adicionadas)
+  var iPrecoMed = col('PRECO MEDIO', 'PRECO MED', 'PRECO/SC', 'R$/SC', 'PRECO SACA', 'PRECO UNITARIO', 'PRECO');
+  var iMoeda    = col('MOEDA', 'CURRENCY', 'MOEDA CONTRATO', 'TIPO MOEDA');
+  var iValorCont= col('VALOR CONTRATO', 'VL CONTRATO', 'VALOR TOTAL', 'VL TOTAL', 'TOTAL', 'VALOR');
+  var iPrazoEmb = col('PRAZO EMBARQUE', 'DT EMBARQUE', 'DATA EMBARQUE', 'EMBARQUE', 'PRAZO', 'PERIODO EMBARQUE');
+  var iDtPgto   = col('DATA PGTO', 'DT PGTO', 'DATA PAGAMENTO', 'DT PAGAMENTO', 'VENCIMENTO', 'DATA VENC');
+  var iFrete    = col('FRETE', 'TIPO FRETE', 'MODALIDADE FRETE', 'CONDICAO FRETE');
+  var iFazenda  = col('FAZENDA', 'PROPRIEDADE', 'LOCAL', 'LOCAL ENTREGA', 'UNIDADE');
+
+  // Fallback por posição ordinal
+  if (iEmpresa  < 0) iEmpresa  = 0;
+  if (iTipo     < 0) iTipo     = 1;
+  if (iCliente  < 0) iCliente  = 2;
+  if (iNumCont  < 0) iNumCont  = 3;
+  if (iQtCont   < 0) iQtCont   = 4;
+  if (iQtEntr   < 0) iQtEntr   = 5;
+  if (iQtAEntr  < 0) iQtAEntr  = 6;
+  if (iQtFat    < 0) iQtFat    = 7;
+  if (iQtAFat   < 0) iQtAFat   = 8;
+  if (iQtFixed  < 0) iQtFixed  = 9;
+  if (iCultura  < 0) iCultura  = 10;
+  if (iSafra    < 0) iSafra    = 11;
+  // Colunas extras: NÃO usa fallback de posição — só preenche se encontradas no header
+
+  console.log('[CONTRATOS] Header detectado (linha ' + headerRow + '):', header.join(' | '));
+  console.log('[CONTRATOS] EMP=' + iEmpresa + ' TIPO=' + iTipo + ' CLI=' + iCliente +
+    ' CONT=' + iNumCont + ' QT=' + iQtCont + ' ENT=' + iQtEntr + ' AENT=' + iQtAEntr +
+    ' FAT=' + iQtFat + ' AFAT=' + iQtAFat + ' FIX=' + iQtFixed +
+    ' CULT=' + iCultura + ' SAFRA=' + iSafra);
+
+  // ── Leitura das linhas ────────────────────────────────────────────
+  for (var i = startRow; i < rows.length; i++) {
+    var r = rows[i];
+    if (!r) continue;
+    var empVal = r[iEmpresa];
+    if (empVal == null || String(empVal).trim() === '') continue;
+    var empStr = norm(empVal);
+    if (empStr === 'TOTAL' || empStr === 'TOTAIS' || empStr === 'SUBTOTAL') continue;
+
+    var qtContrato  = parseNum(r[iQtCont]);
+    var qtEntregue  = parseNum(r[iQtEntr]);
+    var qtAEntregar = parseNum(r[iQtAEntr]);
+    var qtFaturada  = parseNum(r[iQtFat]);
+    var qtAFaturar  = parseNum(r[iQtAFat]);
+    var qtFixada    = parseNum(r[iQtFixed]);
+    var pctAtend    = qtContrato > 0 ? (qtEntregue / qtContrato) * 100 : 0;
+
+    function safeStr(idx) {
+      return (idx >= 0 && r[idx] != null) ? String(r[idx]).trim() : '';
+    }
+    function safeNum(idx) {
+      return (idx >= 0 && r[idx] != null) ? parseNum(r[idx]) : null;
+    }
+    function safeDate(idx) {
+      return (idx >= 0 && r[idx] != null) ? r[idx] : null;
+    }
+
+    items.push({
+      empresa:       String(empVal).trim(),
+      tipo:          safeStr(iTipo),
+      cliente:       safeStr(iCliente),
+      numContrato:   String(r[iNumCont] || '').trim(),
+      qtContrato:    qtContrato,
+      qtEntregue:    qtEntregue,
+      qtAEntregar:   qtAEntregar,
+      qtFaturada:    qtFaturada,
+      qtAFaturar:    qtAFaturar,
+      qtFixada:      qtFixada,
+      cultura:       safeStr(iCultura).toUpperCase(),
+      safra:         safeStr(iSafra),
+      pctAtend:      pctAtend,
+      // Colunas extras (preenchidas quando adicionadas na planilha)
+      precoMedio:    safeNum(iPrecoMed),
+      moeda:         safeStr(iMoeda),
+      valorContrato: safeNum(iValorCont),
+      prazoEmbarque: safeDate(iPrazoEmb),
+      dataPgto:      safeDate(iDtPgto),
+      frete:         safeStr(iFrete),
+      fazenda:       safeStr(iFazenda),
+    });
+  }
+
+  console.log('[CONTRATOS] Linhas carregadas:', items.length);
+  return items;
+}
+
+function parseFluxo() {
+  var rows = DATA.fluxo;
+  if (!rows || !rows.length) return [];
+
+  // Header normalizado: sem acentos, uppercase, sem espaços duplos
+  function norm(s) {
+    return String(s || '').trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase().replace(/\s+/g, ' ');
+  }
+
+  var header = rows[0] ? rows[0].map(norm) : [];
+
+  // Busca coluna por lista de aliases (retorna primeiro encontrado)
+  function col() {
+    var aliases = Array.prototype.slice.call(arguments);
+    for (var a = 0; a < aliases.length; a++) {
+      var n = norm(aliases[a]);
+      var idx = header.indexOf(n);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  }
+
+  var iData      = col('DATA', 'DT', 'DT LANCAMENTO', 'DATA LANCAMENTO', 'DATA MOVIMENTO');
+  var iEmpresa   = col('EMPRESA', 'FAZENDA', 'ENTIDADE', 'CIA');
+  var iNome      = col('NOME', 'DESCRICAO', 'HISTORICO', 'DESCR', 'NOME LANCAMENTO');
+  var iEntOrig   = col('ENTRADA_ORIGEM', 'ENTRADA ORIGEM', 'ORIGEM ENTRADA', 'TIPO ENTRADA', 'CATEGORIA ENTRADA', 'ORIGEM_ENTRADA');
+  var iSaiOrig   = col('SAIDA_ORIGEM', 'SAIDA ORIGEM', 'ORIGEM SAIDA', 'TIPO SAIDA', 'CATEGORIA SAIDA', 'ORIGEM_SAIDA');
+  var iEntradas  = col('ENTRADAS', 'ENTRADA', 'CREDITO', 'CREDITOS', 'VL ENTRADA', 'VALOR ENTRADA', 'RECEITA');
+  var iSaidas    = col('SAIDAS', 'SAIDA', 'DEBITO', 'DEBITOS', 'VL SAIDA', 'VALOR SAIDA', 'DESPESA');
+  var iSaldoDia  = col('SALDO DIA', 'SALDO_DIA', 'SALDO DO DIA', 'SALDO DIARIO');
+  var iSaldoBanc = col('SALDO BANCARIO', 'SALDO_BANCARIO', 'SALDO BANCO', 'SALDO FINAL', 'SALDO AC');
+
+  // Debug no console para facilitar diagnóstico em campo
+  console.log('[FLUXO] Header detectado:', header);
+  console.log('[FLUXO] Colunas mapeadas: DATA=' + iData + ' EMP=' + iEmpresa + ' NOME=' + iNome +
+    ' ENT_ORIG=' + iEntOrig + ' SAI_ORIG=' + iSaiOrig +
+    ' ENTRADAS=' + iEntradas + ' SAIDAS=' + iSaidas +
+    ' SALDO_DIA=' + iSaldoDia + ' SALDO_BANC=' + iSaldoBanc);
+
+  var items = [];
   for (var i = 1; i < rows.length; i++) {
     var r = rows[i];
-    if (!r || !r[0]) continue;
-    var qtContrato  = parseNum(r[4]);
-    var qtEntregue  = parseNum(r[5]);
-    var qtAEntregar = parseNum(r[6]);
-    var qtFaturada  = parseNum(r[7]);
-    var qtAFaturar  = parseNum(r[8]);
-    var qtFixada    = parseNum(r[9]);
-    var pctAtend    = qtContrato > 0 ? (qtAFaturar / qtContrato) * 100 : 0;
+    if (!r) continue;
+    var data = iData >= 0 ? r[iData] : null;
+    if (!data) continue;
+
+    var parsedDate = null;
+    if (data instanceof Date) {
+      parsedDate = new Date(data.getTime());
+    } else if (typeof data === 'number') {
+      parsedDate = new Date(Math.round((data - 25569) * 86400 * 1000));
+    } else if (typeof data === 'string') {
+      var d2 = new Date(data);
+      if (!isNaN(d2)) parsedDate = d2;
+    }
+    if (!parsedDate || isNaN(parsedDate.getTime())) continue;
+
     items.push({
-      empresa:     String(r[0] || '').trim(),
-      tipo:        String(r[1] || '').trim(),
-      cliente:     String(r[2] || '').trim(),
-      numContrato: String(r[3] || '').trim(),
-      qtContrato:  qtContrato,
-      qtEntregue:  qtEntregue,
-      qtAEntregar: qtAEntregar,
-      qtFaturada:  qtFaturada,
-      qtAFaturar:  qtAFaturar,
-      qtFixada:    qtFixada,
-      cultura:     String(r[10] || '').trim().toUpperCase(),
-      safra:       String(r[11] || '').trim(),
-      pctAtend:    pctAtend,
+      data:      parsedDate,
+      empresa:   iEmpresa  >= 0 ? String(r[iEmpresa]  || '').trim() : '',
+      nome:      iNome     >= 0 ? String(r[iNome]     || '').trim() : '',
+      entOrig:   iEntOrig  >= 0 ? String(r[iEntOrig]  || '').trim() : '',
+      saiOrig:   iSaiOrig  >= 0 ? String(r[iSaiOrig]  || '').trim() : '',
+      entradas:  iEntradas >= 0 ? parseNum(r[iEntradas]) : 0,
+      saidas:    iSaidas   >= 0 ? parseNum(r[iSaidas])   : 0,
+      saldoDia:  iSaldoDia >= 0 ? parseNum(r[iSaldoDia]) : 0,
+      saldoBanc: iSaldoBanc >= 0 ? parseNum(r[iSaldoBanc]) : 0,
     });
   }
   return items;
 }
 
-// ── FILTRO GLOBAL DE EMPRESA ──────────────────────
+// ── PARSER: TRADE_ALCANCE ─────────────────────────
+function parseTradeAlcance() {
+  var rows = DATA.tradeAlcance;
+  if (!rows || !rows.length) return {};
+
+  function norm(s) {
+    return String(s || '').trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase().replace(/\s+/g, ' ');
+  }
+  var header = rows[0] ? rows[0].map(norm) : [];
+
+  function col() {
+    var aliases = Array.prototype.slice.call(arguments).map(norm);
+    for (var a = 0; a < aliases.length; a++) {
+      var idx = header.indexOf(aliases[a]);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  }
+
+  var iContrato  = col('CONTRATO','NRO CONTRATO','Nº CONTRATO','NUM CONTRATO','NUMERO CONTRATO','NUM_CONTRATO','NUMERO_CONTRATO','N CONTRATO','NR CONTRATO');
+  if (iContrato < 0) iContrato = 0;
+
+  var iEmpresa   = col('EMPRESA','FAZENDA','ENTIDADE','CIA');
+  var iCultura   = col('CULTURA','PRODUTO','GRAO');
+  var iCliente   = col('CLIENTE','COMPRADOR','DESTINO','TRADINGS');
+  var iPrecoSaca = col('PRECO SACA','PRECO/SACA','VALOR SACA','VL SACA','PRECO SC','R$/SC','PRECO_SACA','PRECO SC (R$)','PRECO','PRECO MEDIO','PRECO MED');
+  var iTipoFrete = col('TIPO FRETE','FRETE','MODALIDADE FRETE','TIPO_FRETE','CONDICAO FRETE','COND FRETE');
+  var iQtSacas   = col('QT SACAS','QUANTIDADE','QT CONTRATO','SACAS','VOLUME','QTD','SACAS CONTRATO');
+  var iValorTotal= col('VALOR TOTAL','VL TOTAL','VALOR CONTRATO','TOTAL','VL TOTAL CONTRATO','VALOR_TOTAL');
+  var iDtPgto    = col('DATA PAGAMENTO','DT PAGAMENTO','VENCIMENTO','DT VENC','DATA VENC','DATA_PAGAMENTO','PRAZO PAGAMENTO','DATA PGTO','DT PGTO');
+  var iPrazoEmb  = col('PRAZO EMBARQUE','DT EMBARQUE','DATA EMBARQUE','EMBARQUE','PRAZO_EMBARQUE','DT ENTREGA','PRAZO ENTREGA');
+  var iSafra     = col('SAFRA','ANO SAFRA','PERIODO');
+  var iObs       = col('OBS','OBSERVACAO','OBSERVACOES','NOTA');
+  var iMoeda     = col('MOEDA','CURRENCY','MOEDA CONTRATO');
+  var iFazenda   = col('FAZENDA','PROPRIEDADE','LOCAL ENTREGA');
+
+  console.log('[TRADE] Header:', header);
+  console.log('[TRADE] Map: CONTRATO='+iContrato+' EMP='+iEmpresa+' CULTURA='+iCultura+' CLIENTE='+iCliente+
+    ' PRECO='+iPrecoSaca+' FRETE='+iTipoFrete+' QT='+iQtSacas+
+    ' VL_TOTAL='+iValorTotal+' DT_PGTO='+iDtPgto+' PRAZO_EMB='+iPrazoEmb);
+
+  var map = {};
+  for (var i = 1; i < rows.length; i++) {
+    var r = rows[i];
+    if (!r) continue;
+    var raw = r[iContrato];
+    var numContrato = (raw != null && String(raw).trim() !== '')
+      ? String(raw).trim().toUpperCase()
+      : 'SEM NRO';
+
+    // SEM NRO: índice único para não sobrescrever
+    var key = numContrato === 'SEM NRO' ? 'SEM NRO__' + i : numContrato;
+
+    map[key] = {
+      numContrato: numContrato,
+      empresa:    iEmpresa    >= 0 ? String(r[iEmpresa]    || '').trim() : '',
+      cultura:    iCultura    >= 0 ? String(r[iCultura]    || '').trim().toUpperCase() : '',
+      cliente:    iCliente    >= 0 ? String(r[iCliente]    || '').trim() : '',
+      precoSaca:  iPrecoSaca  >= 0 ? parseNum(r[iPrecoSaca])  : null,
+      tipoFrete:  iTipoFrete  >= 0 ? String(r[iTipoFrete]  || '').trim() : '',
+      qtSacas:    iQtSacas    >= 0 ? parseNum(r[iQtSacas])    : null,
+      valorTotal: iValorTotal >= 0 ? parseNum(r[iValorTotal]) : null,
+      dtPgto:     iDtPgto     >= 0 ? r[iDtPgto]  : null,
+      prazoEmb:   iPrazoEmb   >= 0 ? r[iPrazoEmb] : null,
+      safra:      iSafra      >= 0 ? String(r[iSafra]     || '').trim() : '',
+      obs:        iObs        >= 0 ? String(r[iObs]       || '').trim() : '',
+      moeda:      iMoeda      >= 0 ? String(r[iMoeda]     || '').trim() : '',
+      fazenda:    iFazenda    >= 0 ? String(r[iFazenda]   || '').trim() : '',
+    };
+  }
+  return map;
+}
 function buildFilterChips(empresas) {
   var wrap = document.getElementById('gfChips');
   if (!wrap) return;
@@ -378,6 +669,45 @@ function buildFilterChips(empresas) {
   });
 }
 
+function buildSafraGlobalChips() {
+  var wrap = document.getElementById('gfSafraChips');
+  var wrapOuter = document.getElementById('gfSafraWrap');
+  if (!wrap || !wrapOuter) return;
+
+  // Coleta todas as safras disponíveis (lavoura + contratos)
+  var safras = [];
+  (PARSED.lavoura || []).forEach(function(l) {
+    if (l.safra && safras.indexOf(l.safra) < 0) safras.push(l.safra);
+  });
+  (PARSED.contratos || []).forEach(function(c) {
+    if (c.safra && safras.indexOf(c.safra) < 0) safras.push(c.safra);
+  });
+  safras.sort();
+
+  if (!safras.length) { wrapOuter.style.display = 'none'; return; }
+
+  wrapOuter.style.display = 'flex';
+  wrap.innerHTML = '<button class="gf-safra-chip active" data-safra="TODAS" onclick="setSafraGlobal(\'TODAS\',this)">Todas</button>';
+  safras.forEach(function(s) {
+    var label = s === '2026/2026' ? '2025/2026' : s; // normaliza label
+    var btn = document.createElement('button');
+    btn.className = 'gf-safra-chip';
+    btn.dataset.safra = s;
+    btn.textContent = label;
+    btn.onclick = (function(safra, b) { return function() { setSafraGlobal(safra, b); }; })(s, btn);
+    wrap.appendChild(btn);
+  });
+
+  FILTRO_SAFRA_GLOBAL = 'TODAS';
+}
+
+function setSafraGlobal(safra, btn) {
+  FILTRO_SAFRA_GLOBAL = safra;
+  document.querySelectorAll('.gf-safra-chip').forEach(function(c) { c.classList.remove('active'); });
+  btn.classList.add('active');
+  refreshAll();
+}
+
 function setEmpresaFiltro(emp, btn) {
   FILTRO_EMPRESA = emp;
   document.querySelectorAll('.gf-chip').forEach(function(c) { c.classList.remove('active'); });
@@ -392,22 +722,30 @@ function empresasFiltradas() {
 
 function lavouraFiltrada() {
   var all = PARSED.lavoura || [];
-  return FILTRO_EMPRESA === 'TODAS' ? all : all.filter(function(l) { return l.empresa === FILTRO_EMPRESA; });
+  if (FILTRO_EMPRESA !== 'TODAS') all = all.filter(function(l) { return l.empresa === FILTRO_EMPRESA; });
+  if (FILTRO_SAFRA_GLOBAL !== 'TODAS') all = all.filter(function(l) { return l.safra === FILTRO_SAFRA_GLOBAL; });
+  return all;
 }
 
 function contratosFiltrados() {
   var all = PARSED.contratos || [];
   if (FILTRO_EMPRESA !== 'TODAS') all = all.filter(function(c) { return c.empresa === FILTRO_EMPRESA; });
 
+  // Filtro safra: prioridade → select local → global → aba tabs
   var selSafra   = document.getElementById('filtroContratoSafraExtra');
   var safraExtra = selSafra ? selSafra.value : '';
+
   if (safraExtra) {
     all = all.filter(function(c) { return c.safra === safraExtra; });
+  } else if (FILTRO_SAFRA_GLOBAL !== 'TODAS') {
+    all = all.filter(function(c) { return c.safra === FILTRO_SAFRA_GLOBAL; });
   } else if (SAFRA_CONTRATO) {
+    // só filtra se SAFRA_CONTRATO não for vazio
     all = all.filter(function(c) { return c.safra === SAFRA_CONTRATO; });
   }
+  // se SAFRA_CONTRATO === '' → sem filtro de safra, mostra tudo
 
-  var selCultura   = document.getElementById('filtroContratoCultura');
+  var selCultura    = document.getElementById('filtroContratoCultura');
   var culturaFiltro = selCultura ? selCultura.value : '';
   if (culturaFiltro) all = all.filter(function(c) { return c.cultura === culturaFiltro; });
 
@@ -473,7 +811,8 @@ function buildSafraTabs(containerId, safras, cultura) {
   safras.forEach(function(s, i) {
     var btn = document.createElement('button');
     btn.className = 'safra-tab' + (i === 0 ? ' active' : '');
-    btn.textContent = s;
+    // Para MILHO: 2026/2026 exibe como 2025/2026
+    btn.textContent = (cultura === 'MILHO' && s === '2026/2026') ? '2025/2026' : s;
     btn.onclick = function() {
       wrap.querySelectorAll('.safra-tab').forEach(function(b) { b.classList.remove('active'); });
       btn.classList.add('active');
@@ -488,21 +827,45 @@ function buildSafraTabs(containerId, safras, cultura) {
 function initContratoSafraTabs() {
   var allSafras = [];
   (PARSED.contratos || []).forEach(function(c) {
-    if (allSafras.indexOf(c.safra) < 0) allSafras.push(c.safra);
+    if (c.safra && allSafras.indexOf(c.safra) < 0) allSafras.push(c.safra);
   });
   allSafras.sort();
-  SAFRA_CONTRATO = allSafras[0] || '2025/2026';
+  // Por padrão, sem filtro de safra — mostra todos os contratos
+  SAFRA_CONTRATO = '';
   buildContratoSafraTabs(allSafras);
+
+  // Garante botão Agrupar no estado correto
+  var btn = document.getElementById('btnAgrupar');
+  if (btn) {
+    btn.classList.toggle('active', AGRUPAR_EMPRESAS);
+    btn.innerHTML = AGRUPAR_EMPRESAS
+      ? '<i class="fas fa-list"></i> Desagrupar'
+      : '<i class="fas fa-layer-group"></i> Agrupar por Empresa';
+  }
 }
 
 function buildContratoSafraTabs(safras) {
   var wrap = document.getElementById('contratoSafraTabs');
   if (!wrap) return;
   wrap.innerHTML = '';
-  safras.forEach(function(s, i) {
+
+  // Botão "Todas" — default ativo
+  var btnTodas = document.createElement('button');
+  btnTodas.className = 'safra-tab active';
+  btnTodas.textContent = 'Todas';
+  btnTodas.onclick = function() {
+    wrap.querySelectorAll('.safra-tab').forEach(function(b) { b.classList.remove('active'); });
+    btnTodas.classList.add('active');
+    SAFRA_CONTRATO = '';
+    renderContratosTable();
+  };
+  wrap.appendChild(btnTodas);
+
+  safras.forEach(function(s) {
     var btn = document.createElement('button');
-    btn.className = 'safra-tab' + (i === 0 ? ' active' : '');
-    btn.textContent = s;
+    btn.className = 'safra-tab';
+    // Milho: 2026/2026 exibe como 2025/2026
+    btn.textContent = s === '2026/2026' ? '2025/2026' : s;
     btn.onclick = function() {
       wrap.querySelectorAll('.safra-tab').forEach(function(b) { b.classList.remove('active'); });
       btn.classList.add('active');
@@ -521,11 +884,13 @@ function refreshAll() {
 
   renderKPIs(emps, lav);
   renderFluxoTable(emps);
+  renderProximosRecebimentos();
+  renderFluxo30Dias();
+  renderAlertas(emps);
   renderAllCharts(emps, lav);
   renderGrains(lav);
   renderContratosTable();
   renderIndicadores(emps, lav);
-  renderAlertas(emps);
 
   var now   = new Date();
   var badge = FILTRO_EMPRESA === 'TODAS' ? 'Todas as empresas' : FILTRO_EMPRESA;
@@ -584,7 +949,7 @@ function setTrend(id, pct, label) {
   var arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '→';
   var cls   = pct > 0 ? 'trend-up' : pct < 0 ? 'trend-down' : 'trend-neu';
   el.className = 'kpi-trend ' + cls;
-  el.innerHTML = arrow + ' ' + Math.abs(pct).toFixed(2) + '% <span style="font-weight:400;opacity:.7">' + label + '</span>';
+  el.innerHTML = arrow + ' ' + Math.abs(pct).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + '% <span style="font-weight:400;opacity:.7">' + label + '</span>';
 }
 
 // ── TABELA FLUXO ──────────────────────────────────
@@ -625,6 +990,177 @@ function renderFluxoTable(emps) {
       });
     } catch(e) { console.warn('DataTable init error:', e); }
   }
+}
+
+// ── PRÓXIMOS RECEBIMENTOS ─────────────────────────
+function renderProximosRecebimentos() {
+  var tbody  = document.getElementById('proxRecebBody');
+  var banner = document.getElementById('proxRecebAlerta');
+  var bannerMsg = document.getElementById('proxRecebAlertaMsg');
+  var badge  = document.getElementById('proxRecebBadge');
+  if (!tbody) return;
+
+  var today  = new Date(); today.setHours(0,0,0,0);
+  var limit  = new Date(today); limit.setDate(today.getDate() + 30);
+
+  var fluxo = PARSED.fluxo || [];
+  var emps  = FILTRO_EMPRESA === 'TODAS' ? null : FILTRO_EMPRESA;
+
+  var items = fluxo.filter(function(r) {
+    if (r.entradas <= 0) return false;
+    if (emps && r.empresa !== emps) return false;
+    var d = new Date(r.data); d.setHours(0,0,0,0);
+    return d >= today && d <= limit;
+  });
+
+  items.sort(function(a, b) { return a.data - b.data; });
+
+  var top10 = items.slice(0, 10);
+  var totalValor = items.reduce(function(s, r) { return s + r.entradas; }, 0);
+  var urgentes   = items.filter(function(r) {
+    var d = new Date(r.data); d.setHours(0,0,0,0);
+    var diff = (d - today) / 86400000;
+    return diff <= 7;
+  });
+
+  // Alerta
+  if (banner && bannerMsg) {
+    if (urgentes.length > 0) {
+      banner.style.display = 'flex';
+      bannerMsg.textContent = urgentes.length + ' recebimento(s) esperado(s) nos próximos 7 dias · Total: ' + fBRL(urgentes.reduce(function(s,r){return s+r.entradas;},0));
+      banner.className = 'alerta-receb-banner banner-warning';
+    } else if (items.length === 0) {
+      banner.style.display = 'flex';
+      bannerMsg.textContent = 'Nenhum recebimento previsto nos próximos 30 dias.';
+      banner.className = 'alerta-receb-banner banner-info';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  if (badge) badge.textContent = items.length + ' recebimento(s) · ' + fBRL(totalValor);
+
+  tbody.innerHTML = '';
+  if (!top10.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Nenhum recebimento nos próximos 30 dias</td></tr>';
+    return;
+  }
+
+  top10.forEach(function(r) {
+    var d = new Date(r.data); d.setHours(0,0,0,0);
+    var diasAte = Math.round((d - today) / 86400000);
+    var urgCls  = diasAte <= 3 ? 'receb-urgente' : diasAte <= 7 ? 'receb-proximo' : '';
+    var tr = document.createElement('tr');
+    if (urgCls) tr.className = urgCls;
+    tr.innerHTML =
+      '<td class="mono">' + r.data.toLocaleDateString('pt-BR') +
+        (diasAte === 0 ? ' <span class="receb-hoje">HOJE</span>' : diasAte === 1 ? ' <span class="receb-amanha">AMANHÃ</span>' : ' <span class="receb-dias">' + diasAte + 'd</span>') +
+      '</td>' +
+      '<td><strong>' + (r.empresa || '—') + '</strong></td>' +
+      '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + r.nome + '">' + (r.nome || '—') + '</td>' +
+      '<td><span class="origem-badge">' + formatOrigem(r.entOrig) + '</span></td>' +
+      '<td class="mono" style="text-align:right;color:var(--green-mid);font-weight:700">' + fBRL(r.entradas) + '</td>';
+    tbody.appendChild(tr);
+  });
+
+  if (items.length > 10) {
+    var more = document.createElement('tr');
+    more.innerHTML = '<td colspan="5" style="text-align:center;color:var(--text-muted);font-style:italic;font-size:0.8rem">+ ' + (items.length - 10) + ' registro(s) adicionais não exibidos</td>';
+    tbody.appendChild(more);
+  }
+}
+
+// ── FLUXO 30 DIAS ─────────────────────────────────
+function renderFluxo30Dias() {
+  var container = document.getElementById('fluxo30Container');
+  if (!container) return;
+
+  var today = new Date(); today.setHours(0,0,0,0);
+  var limit = new Date(today); limit.setDate(today.getDate() + 30);
+
+  var fluxo = PARSED.fluxo || [];
+  var emps  = FILTRO_EMPRESA === 'TODAS' ? null : FILTRO_EMPRESA;
+
+  var items = fluxo.filter(function(r) {
+    if (emps && r.empresa !== emps) return false;
+    var d = new Date(r.data); d.setHours(0,0,0,0);
+    return d >= today && d <= limit;
+  });
+  items.sort(function(a, b) { return a.data - b.data; });
+
+  if (!items.length) {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:2rem">Nenhum lançamento nos próximos 30 dias</div>';
+    return;
+  }
+
+  // Agrupar por empresa
+  var byEmp = {};
+  items.forEach(function(r) {
+    var emp = r.empresa || 'SEM EMPRESA';
+    if (!byEmp[emp]) byEmp[emp] = [];
+    byEmp[emp].push(r);
+  });
+
+  var html = '';
+  Object.keys(byEmp).forEach(function(emp) {
+    var rows = byEmp[emp];
+    var totEnt = rows.reduce(function(s,r) { return s + r.entradas; }, 0);
+    var totSai = rows.reduce(function(s,r) { return s + r.saidas;   }, 0);
+    var totSal = rows.reduce(function(s,r) { return s + r.saldoDia; }, 0);
+    var empKey = 'fluxo30_' + emp.replace(/\s/g,'_');
+
+    html += '<div class="fluxo30-group">' +
+      '<div class="fluxo30-group-header" onclick="toggleFluxo30Group(\'' + empKey + '\', this)">' +
+        '<div class="fluxo30-emp-info">' +
+          '<span class="group-toggle-icon"><i class="fas fa-chevron-right"></i></span>' +
+          '<strong>' + emp + '</strong>' +
+          '<span class="group-count">' + rows.length + ' lançamento(s)</span>' +
+        '</div>' +
+        '<div class="fluxo30-totais">' +
+          '<span class="ft-ent"><i class="fas fa-arrow-down"></i> ' + fBRL(totEnt) + '</span>' +
+          '<span class="ft-sai"><i class="fas fa-arrow-up"></i> ' + fBRL(totSai) + '</span>' +
+          '<span class="ft-sal ' + (totSal >= 0 ? 'ft-sal-pos' : 'ft-sal-neg') + '"><i class="fas fa-scale-balanced"></i> ' + fBRL(totSal) + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="fluxo30-body" id="' + empKey + '" style="display:none">' +
+        '<div class="table-responsive">' +
+          '<table class="table" style="width:100%;font-size:0.81rem">' +
+            '<thead><tr>' +
+              '<th>Data</th><th>Nome</th><th>Origem Entrada</th><th>Origem Saída</th>' +
+              '<th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th>' +
+              '<th style="text-align:right">Saldo Dia</th><th style="text-align:right">Saldo Bancário</th>' +
+            '</tr></thead>' +
+            '<tbody>' +
+              rows.map(function(r) {
+                var sCls = r.saldoDia >= 0 ? 'color:var(--green-mid)' : 'color:var(--red)';
+                return '<tr>' +
+                  '<td class="mono">' + r.data.toLocaleDateString('pt-BR') + '</td>' +
+                  '<td>' + (r.nome || '—') + '</td>' +
+                  '<td><span class="origem-badge">' + formatOrigem(r.entOrig) + '</span></td>' +
+                  '<td><span class="origem-badge origem-sai">' + formatOrigem(r.saiOrig) + '</span></td>' +
+                  '<td class="mono" style="text-align:right;color:var(--green-mid)">' + (r.entradas > 0 ? fBRL(r.entradas) : '—') + '</td>' +
+                  '<td class="mono" style="text-align:right;color:var(--red)">'       + (r.saidas   > 0 ? fBRL(r.saidas)   : '—') + '</td>' +
+                  '<td class="mono" style="text-align:right;' + sCls + '">' + fBRL(r.saldoDia) + '</td>' +
+                  '<td class="mono" style="text-align:right">' + fBRL(r.saldoBanc) + '</td>' +
+                '</tr>';
+              }).join('') +
+            '</tbody>' +
+          '</table>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  });
+
+  container.innerHTML = html;
+}
+
+function toggleFluxo30Group(id, headerEl) {
+  var body = document.getElementById(id);
+  if (!body) return;
+  var isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  var icon = headerEl.querySelector('.group-toggle-icon i');
+  if (icon) icon.className = isOpen ? 'fas fa-chevron-right' : 'fas fa-chevron-down';
 }
 
 // ── GRAINS ────────────────────────────────────────
@@ -675,47 +1211,217 @@ function exportContratosExcel() {
   var items = contratosFiltrados();
   if (!items.length) { alert('Nenhum contrato para exportar.'); return; }
 
-  var headers = ['Empresa','Cultura','Nº Contrato','Cliente / Comprador',
+  var headers = ['Empresa','Tipo','Cultura','Safra','Nº Contrato','Cliente / Fornecedor',
     'Qt. Contrato (sc)','Qt. Entregue (sc)','Qt. A Entregar (sc)',
-    'Qt. Faturada (sc)','Qt. A Faturar (sc)','% Atendimento'];
+    'Qt. Faturada (sc)','Qt. A Faturar (sc)','Qt. Fixada (sc)','% Atendimento'];
 
   var rows = items.map(function(c) {
-    return [c.empresa, c.cultura, c.numContrato, c.cliente,
-      c.qtContrato, c.qtEntregue, c.qtAEntregar, c.qtFaturada, c.qtAFaturar,
-      (c.qtContrato > 0 ? (c.qtAFaturar / c.qtContrato * 100).toFixed(1) + '%' : '0%')];
+    return [
+      c.empresa     || '',
+      c.tipo        || '',
+      c.cultura     || '',
+      c.safra       || '',
+      c.numContrato || '',
+      c.cliente     || '',
+      c.qtContrato  != null ? c.qtContrato  : '',
+      c.qtEntregue  != null ? c.qtEntregue  : '',
+      c.qtAEntregar != null ? c.qtAEntregar : '',
+      c.qtFaturada  != null ? c.qtFaturada  : '',
+      c.qtAFaturar  != null ? c.qtAFaturar  : '',
+      c.qtFixada    != null ? c.qtFixada    : '',
+      c.pctAtend    != null ? (c.pctAtend / 100) : '',
+    ];
   });
 
   var wb2 = XLSX.utils.book_new();
   var ws  = XLSX.utils.aoa_to_sheet([headers].concat(rows));
-  ws['!cols'] = headers.map(function() { return { wch: 16 }; });
+  ws['!cols'] = headers.map(function(h, i) { return { wch: i >= 6 ? 16 : 22 }; });
   XLSX.utils.book_append_sheet(wb2, ws, 'Contratos');
   var safra = (document.getElementById('filtroContratoSafraExtra') || {}).value || SAFRA_CONTRATO || 'contratos';
   XLSX.writeFile(wb2, 'contratos_' + safra.replace('/','_') + '.xlsx');
 }
 
+// ── JOIN: CONTRATOS (ERP) + TRADE_ALCANCE (Gerencial) ───────────────
+// Retorna lista unificada: base = TRADE_ALCANCE, enriquecida com ERP onde numContrato bater
+function buildContratosMerged() {
+  var erpMap = {};
+  (PARSED.contratos || []).forEach(function(c) {
+    var key = c.numContrato; // já normalizado uppercase em parseContratos
+    if (!erpMap[key]) erpMap[key] = [];
+    erpMap[key].push(c);
+  });
+
+  var ta = PARSED.tradeAlcance || {};
+  var merged = [];
+
+  // Itera sobre TRADE_ALCANCE como fonte primária
+  Object.keys(ta).forEach(function(key) {
+    var td = ta[key];
+    var nro = td.numContrato; // 'SEM NRO' ou número real
+
+    // Aplica filtro de empresa se ativo
+    var empFiltro = FILTRO_EMPRESA !== 'TODAS' ? FILTRO_EMPRESA : null;
+    if (empFiltro && td.empresa && td.empresa.toUpperCase() !== empFiltro.toUpperCase()) {
+      // tenta também pelo ERP
+      var erpRows = erpMap[nro] || [];
+      if (!erpRows.some(function(e) { return e.empresa === empFiltro; })) return;
+    }
+
+    // Busca linha(s) ERP correspondente
+    var erpRows = (nro !== 'SEM NRO' ? erpMap[nro] : null) || [];
+
+    if (erpRows.length > 0) {
+      // Merge: uma linha por contrato ERP, com dados Trade completando
+      erpRows.forEach(function(erp) {
+        merged.push({
+          // Identificação
+          numContrato: nro,
+          empresa:     erp.empresa  || td.empresa  || '—',
+          cultura:     erp.cultura  || td.cultura  || '—',
+          cliente:     erp.cliente  || td.cliente  || '—',
+          safra:       erp.safra    || td.safra    || '—',
+          // Dados ERP (quantitativos)
+          qtContrato:  erp.qtContrato,
+          qtEntregue:  erp.qtEntregue,
+          qtAEntregar: erp.qtAEntregar,
+          qtFaturada:  erp.qtFaturada,
+          qtAFaturar:  erp.qtAFaturar,
+          pctAtend:    erp.qtContrato > 0 ? (erp.qtEntregue / erp.qtContrato) * 100 : 0,
+          hasErp: true,
+          // Dados Gerenciais (Trade) — prioriza Trade, fallback ERP
+          tipo:         td.tipoFrete  || erp.tipo         || '',
+          precoMedio:   td.precoSaca  != null ? td.precoSaca  : erp.precoMedio,
+          moeda:        td.moeda      || erp.moeda         || '',
+          valorContrato: td.valorTotal != null ? td.valorTotal : erp.valorContrato,
+          prazoEmbarque: td.prazoEmb  != null ? td.prazoEmb  : erp.prazoEmbarque,
+          dataPgto:     td.dtPgto     != null ? td.dtPgto    : erp.dataPgto,
+          frete:        td.tipoFrete  || erp.frete          || '',
+          fazenda:      td.fazenda    || erp.fazenda         || '',
+          obs:          td.obs        || '',
+          // Campos legados (compat)
+          precoSaca:   td.precoSaca,
+          tipoFrete:   td.tipoFrete,
+          qtSacasTrade:td.qtSacas,
+          valorTotal:  td.valorTotal,
+          dtPgto:      td.dtPgto,
+          prazoEmb:    td.prazoEmb,
+        });
+      });
+    } else {
+      // Contrato só no gerencial, sem par ERP
+      merged.push({
+        numContrato: nro,
+        empresa:     td.empresa  || '—',
+        cultura:     td.cultura  || '—',
+        cliente:     td.cliente  || '—',
+        safra:       td.safra    || '—',
+        qtContrato:  td.qtSacas  || null,
+        qtEntregue:  null,
+        qtAEntregar: null,
+        qtFaturada:  null,
+        qtAFaturar:  null,
+        pctAtend:    null,
+        hasErp: false,
+        tipo:         td.tipoFrete  || '',
+        precoMedio:   td.precoSaca,
+        moeda:        td.moeda      || '',
+        valorContrato: td.valorTotal,
+        prazoEmbarque: td.prazoEmb,
+        dataPgto:     td.dtPgto,
+        frete:        td.tipoFrete  || '',
+        fazenda:      td.fazenda    || '',
+        obs:          td.obs        || '',
+        // Campos legados
+        precoSaca:   td.precoSaca,
+        tipoFrete:   td.tipoFrete,
+        qtSacasTrade:td.qtSacas,
+        valorTotal:  td.valorTotal,
+        dtPgto:      td.dtPgto,
+        prazoEmb:    td.prazoEmb,
+      });
+    }
+  });
+
+  // Adiciona contratos ERP que não têm par no Trade (número não cadastrado gerencialmente)
+  Object.keys(erpMap).forEach(function(nro) {
+    var hasTrade = Object.keys(ta).some(function(k) { return ta[k].numContrato === nro; });
+    if (hasTrade) return; // já incluído acima
+    erpMap[nro].forEach(function(erp) {
+      var empFiltro = FILTRO_EMPRESA !== 'TODAS' ? FILTRO_EMPRESA : null;
+      if (empFiltro && erp.empresa !== empFiltro) return;
+      merged.push({
+        numContrato: nro,
+        empresa:     erp.empresa  || '—',
+        cultura:     erp.cultura  || '—',
+        cliente:     erp.cliente  || '—',
+        safra:       erp.safra    || '—',
+        qtContrato:  erp.qtContrato,
+        qtEntregue:  erp.qtEntregue,
+        qtAEntregar: erp.qtAEntregar,
+        qtFaturada:  erp.qtFaturada,
+        qtAFaturar:  erp.qtAFaturar,
+        pctAtend:    erp.qtContrato > 0 ? (erp.qtEntregue / erp.qtContrato) * 100 : 0,
+        hasErp: true,
+        tipo:         erp.tipo          || '',
+        precoMedio:   erp.precoMedio    != null ? erp.precoMedio   : null,
+        moeda:        erp.moeda         || '',
+        valorContrato: erp.valorContrato != null ? erp.valorContrato : null,
+        prazoEmbarque: erp.prazoEmbarque,
+        dataPgto:     erp.dataPgto,
+        frete:        erp.frete         || '',
+        fazenda:      erp.fazenda       || '',
+        obs:          '',
+        precoSaca: null, tipoFrete: '', qtSacasTrade: null,
+        valorTotal: null, dtPgto: null, prazoEmb: null,
+      });
+    });
+  });
+
+  // Aplica filtros de safra e cultura
+  var selSafraExtra = document.getElementById('filtroContratoSafraExtra');
+  var safraExtra = selSafraExtra ? selSafraExtra.value : '';
+  if (safraExtra) merged = merged.filter(function(m) { return m.safra === safraExtra; });
+  else if (SAFRA_CONTRATO) merged = merged.filter(function(m) { return !m.safra || m.safra === '' || m.safra === SAFRA_CONTRATO; });
+
+  var selCultura = document.getElementById('filtroContratoCultura');
+  var culturaFiltro = selCultura ? selCultura.value : '';
+  if (culturaFiltro) merged = merged.filter(function(m) { return m.cultura === culturaFiltro; });
+
+  return merged;
+}
+
 function renderContratosTable() {
   var tbody = document.getElementById('contratosBody');
   if (!tbody) return;
+  tbody.innerHTML = '';
+  var NCOL = 13;
+  var dash  = '<span style="color:var(--text-muted)">\u2014</span>';
 
   var items = contratosFiltrados();
-  tbody.innerHTML = '';
 
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted)">Nenhum contrato encontrado</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="' + NCOL + '" style="text-align:center;padding:2rem;color:var(--text-muted)">' +
+      '<i class="fas fa-inbox" style="font-size:1.5rem;display:block;margin-bottom:.5rem"></i>' +
+      'Nenhum contrato encontrado</td></tr>';
     return;
   }
 
   if (AGRUPAR_EMPRESAS) {
     var byEmp = {};
-    items.forEach(function(c) { if (!byEmp[c.empresa]) byEmp[c.empresa] = []; byEmp[c.empresa].push(c); });
+    items.forEach(function(c) {
+      var emp = c.empresa || '\u2014';
+      if (!byEmp[emp]) byEmp[emp] = [];
+      byEmp[emp].push(c);
+    });
 
-    Object.keys(byEmp).forEach(function(emp) {
+    Object.keys(byEmp).sort().forEach(function(emp) {
       var contratos = byEmp[emp];
-      var totC  = contratos.reduce(function(s,c) { return s+c.qtContrato;  }, 0);
-      var totE  = contratos.reduce(function(s,c) { return s+c.qtEntregue;  }, 0);
-      var totAE = contratos.reduce(function(s,c) { return s+c.qtAEntregar; }, 0);
-      var totF  = contratos.reduce(function(s,c) { return s+c.qtFaturada;  }, 0);
-      var totAF = contratos.reduce(function(s,c) { return s+c.qtAFaturar;  }, 0);
+      var totC  = contratos.reduce(function(s,c){ return s+(c.qtContrato  ||0); },0);
+      var totE  = contratos.reduce(function(s,c){ return s+(c.qtEntregue  ||0); },0);
+      var totAE = contratos.reduce(function(s,c){ return s+(c.qtAEntregar ||0); },0);
+      var totF  = contratos.reduce(function(s,c){ return s+(c.qtFaturada  ||0); },0);
+      var totAF = contratos.reduce(function(s,c){ return s+(c.qtAFaturar  ||0); },0);
+      var totFix= contratos.reduce(function(s,c){ return s+(c.qtFixada    ||0); },0);
       var totPct = totC > 0 ? (totE / totC * 100) : 0;
       var totPctCls = totPct >= 80 ? 'fill-green' : totPct >= 40 ? 'fill-yellow' : 'fill-red';
 
@@ -723,39 +1429,49 @@ function renderContratosTable() {
       groupRow.className = 'contrato-group-row';
       groupRow.style.cursor = 'pointer';
       groupRow.innerHTML =
-        '<td colspan="4"><span class="group-toggle-icon"><i class="fas fa-chevron-down"></i></span>' +
-        '<strong>' + emp + '</strong><span class="group-count">' + contratos.length + ' contrato(s)</span></td>' +
-        '<td class="mono"><strong>' + fNum(totC,1) + '</strong></td>' +
-        '<td class="mono"><strong>' + fNum(totE,1) + '</strong></td>' +
-        '<td class="mono"><strong>' + fNum(totAE,1) + '</strong></td>' +
-        '<td class="mono"><strong>' + fNum(totF,1) + '</strong></td>' +
-        '<td class="mono"><strong>' + fNum(totAF,1) + '</strong></td>' +
-        '<td><div style="display:flex;align-items:center;gap:6px;min-width:90px">' +
-        '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + totPctCls + '" style="width:' + Math.min(totPct,100).toFixed(1) + '%"></div></div>' +
-        '<span style="font-size:0.75rem;font-weight:700">' + totPct.toFixed(1) + '%</span></div></td>';
+        '<td colspan="2"><span class="group-toggle-icon"><i class="fas fa-chevron-down"></i></span>' +
+        '<strong>' + emp + '</strong> <span class="group-count">' + contratos.length + ' contrato(s)</span></td>' +
+        '<td colspan="2" style="color:var(--text-muted);font-size:.73rem"></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totC,0)  + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totE,0)  + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totAE,0) + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totF,0)  + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totAF,0) + '</strong></td>' +
+        '<td class="mono" style="text-align:right"><strong>' + fNum(totFix,0)+ '</strong></td>' +
+        '<td colspan="3"><div style="display:flex;align-items:center;gap:6px;min-width:90px">' +
+          '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + totPctCls +
+          '" style="width:' + Math.min(totPct,100).toFixed(1) + '%"></div></div>' +
+          '<span style="font-size:.74rem;font-weight:700">' + fPct(totPct) + '</span></div></td>';
       tbody.appendChild(groupRow);
 
       var subRows = [];
       contratos.forEach(function(c) {
-        var pctAtend  = c.qtContrato > 0 ? (c.qtEntregue / c.qtContrato) * 100 : 0;
-        var pctCls    = pctAtend >= 80 ? 'fill-green' : pctAtend >= 40 ? 'fill-yellow' : 'fill-red';
-        var pctColor  = pctAtend >= 80 ? 'var(--green-light)' : pctAtend >= 40 ? 'var(--yellow)' : 'var(--red)';
-        var culturaCls = c.cultura === 'SOJA' ? 'cultura-soja' : c.cultura === 'MILHO' ? 'cultura-milho' : 'cultura-outro';
+        var pct    = c.pctAtend != null ? c.pctAtend : 0;
+        var pctCls = pct >= 80 ? 'fill-green' : pct >= 40 ? 'fill-yellow' : 'fill-red';
+        var pctClr = pct >= 80 ? 'var(--green-light)' : pct >= 40 ? 'var(--yellow)' : 'var(--red)';
+        var cultCls = c.cultura === 'SOJA' ? 'cultura-soja' : c.cultura === 'MILHO' ? 'cultura-milho' : 'cultura-outro';
+        var tipoBadge = c.tipo ? '<span class="frete-badge" style="font-size:.68rem">' + c.tipo + '</span>' : dash;
         var tr = document.createElement('tr');
         tr.className = 'contrato-sub-row';
         tr.innerHTML =
-          '<td style="padding-left:2rem">' + c.empresa + '</td>' +
-          '<td><span class="cultura-badge ' + culturaCls + '">' + c.cultura + '</span></td>' +
-          '<td class="mono" style="font-size:0.78rem">' + c.numContrato + '</td>' +
-          '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + c.cliente + '">' + c.cliente + '</td>' +
-          '<td class="mono">' + fNum(c.qtContrato,1) + '</td>' +
-          '<td class="mono">' + fNum(c.qtEntregue,1) + '</td>' +
-          '<td class="mono">' + fNum(c.qtAEntregar,1) + '</td>' +
-          '<td class="mono">' + fNum(c.qtFaturada,1) + '</td>' +
-          '<td class="mono">' + fNum(c.qtAFaturar,1) + '</td>' +
-          '<td><div style="display:flex;align-items:center;gap:6px;min-width:90px">' +
-          '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + pctCls + '" style="width:' + Math.min(pctAtend,100).toFixed(1) + '%"></div></div>' +
-          '<span style="font-size:0.75rem;font-weight:700;color:' + pctColor + '">' + pctAtend.toFixed(1) + '%</span></div></td>';
+          '<td style="padding-left:1.8rem;font-size:.77rem">' + (c.empresa||'\u2014') + '</td>' +
+          '<td>' + tipoBadge + '</td>' +
+          '<td><span class="cultura-badge ' + cultCls + '">' + (c.cultura||'\u2014') + '</span></td>' +
+          '<td style="font-size:.75rem;color:var(--text-muted)">' + (c.safra||'\u2014') + '</td>' +
+          '<td class="mono" style="font-size:.76rem">' + (c.numContrato||'\u2014') + '</td>' +
+          '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.76rem" title="' + (c.cliente||'') + '">' + (c.cliente||'\u2014') + '</td>' +
+          '<td class="mono" style="text-align:right">' + (c.qtContrato  != null ? fNum(c.qtContrato,0)  : dash) + '</td>' +
+          '<td class="mono" style="text-align:right">' + (c.qtEntregue  != null ? fNum(c.qtEntregue,0)  : dash) + '</td>' +
+          '<td class="mono" style="text-align:right">' + (c.qtAEntregar != null ? fNum(c.qtAEntregar,0) : dash) + '</td>' +
+          '<td class="mono" style="text-align:right">' + (c.qtFaturada  != null ? fNum(c.qtFaturada,0)  : dash) + '</td>' +
+          '<td class="mono" style="text-align:right">' + (c.qtAFaturar  != null ? fNum(c.qtAFaturar,0)  : dash) + '</td>' +
+          '<td class="mono" style="text-align:right">' + (c.qtFixada    != null ? fNum(c.qtFixada,0)    : dash) + '</td>' +
+          '<td>' + (c.pctAtend != null
+            ? '<div style="display:flex;align-items:center;gap:5px;min-width:80px">' +
+              '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + pctCls +
+              '" style="width:' + Math.min(pct,100).toFixed(1) + '%"></div></div>' +
+              '<span style="font-size:.73rem;font-weight:700;color:' + pctClr + '">' + fPct(pct) + '</span></div>'
+            : dash) + '</td>';
         tbody.appendChild(tr);
         subRows.push(tr);
       });
@@ -767,55 +1483,65 @@ function renderContratosTable() {
         if (icon) icon.className = hidden ? 'fas fa-chevron-down' : 'fas fa-chevron-right';
       });
     });
+
   } else {
     items.forEach(function(c) {
-      var pctAtend  = c.qtContrato > 0 ? (c.qtAFaturar / c.qtContrato) * 100 : 0;
-      var pctCls    = pctAtend >= 80 ? 'fill-green' : pctAtend >= 40 ? 'fill-yellow' : 'fill-red';
-      var pctColor  = pctAtend >= 80 ? 'var(--green-light)' : pctAtend >= 40 ? 'var(--yellow)' : 'var(--red)';
-      var culturaCls = c.cultura === 'SOJA' ? 'cultura-soja' : c.cultura === 'MILHO' ? 'cultura-milho' : 'cultura-outro';
+      var pct    = c.pctAtend != null ? c.pctAtend : 0;
+      var pctCls = pct >= 80 ? 'fill-green' : pct >= 40 ? 'fill-yellow' : 'fill-red';
+      var pctClr = pct >= 80 ? 'var(--green-light)' : pct >= 40 ? 'var(--yellow)' : 'var(--red)';
+      var cultCls = c.cultura === 'SOJA' ? 'cultura-soja' : c.cultura === 'MILHO' ? 'cultura-milho' : 'cultura-outro';
+      var tipoBadge = c.tipo ? '<span class="frete-badge" style="font-size:.68rem">' + c.tipo + '</span>' : dash;
       var tr = document.createElement('tr');
       tr.innerHTML =
-        '<td><strong>' + c.empresa + '</strong></td>' +
-        '<td><span class="cultura-badge ' + culturaCls + '">' + c.cultura + '</span></td>' +
-        '<td class="mono" style="font-size:0.78rem">' + c.numContrato + '</td>' +
-        '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + c.cliente + '">' + c.cliente + '</td>' +
-        '<td class="mono">' + fNum(c.qtContrato,1) + '</td>' +
-        '<td class="mono">' + fNum(c.qtEntregue,1) + '</td>' +
-        '<td class="mono">' + fNum(c.qtAEntregar,1) + '</td>' +
-        '<td class="mono">' + fNum(c.qtFaturada,1) + '</td>' +
-        '<td class="mono">' + fNum(c.qtAFaturar,1) + '</td>' +
-        '<td><div style="display:flex;align-items:center;gap:6px;min-width:90px">' +
-        '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + pctCls + '" style="width:' + Math.min(pctAtend,100).toFixed(1) + '%"></div></div>' +
-        '<span style="font-size:0.75rem;font-weight:700;color:' + pctColor + '">' + pctAtend.toFixed(1) + '%</span></div></td>';
+        '<td><strong>' + (c.empresa||'\u2014') + '</strong></td>' +
+        '<td>' + tipoBadge + '</td>' +
+        '<td><span class="cultura-badge ' + cultCls + '">' + (c.cultura||'\u2014') + '</span></td>' +
+        '<td style="font-size:.75rem;color:var(--text-muted)">' + (c.safra||'\u2014') + '</td>' +
+        '<td class="mono" style="font-size:.76rem">' + (c.numContrato||'\u2014') + '</td>' +
+        '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.76rem" title="' + (c.cliente||'') + '">' + (c.cliente||'\u2014') + '</td>' +
+        '<td class="mono" style="text-align:right">' + (c.qtContrato  != null ? fNum(c.qtContrato,0)  : dash) + '</td>' +
+        '<td class="mono" style="text-align:right">' + (c.qtEntregue  != null ? fNum(c.qtEntregue,0)  : dash) + '</td>' +
+        '<td class="mono" style="text-align:right">' + (c.qtAEntregar != null ? fNum(c.qtAEntregar,0) : dash) + '</td>' +
+        '<td class="mono" style="text-align:right">' + (c.qtFaturada  != null ? fNum(c.qtFaturada,0)  : dash) + '</td>' +
+        '<td class="mono" style="text-align:right">' + (c.qtAFaturar  != null ? fNum(c.qtAFaturar,0)  : dash) + '</td>' +
+        '<td class="mono" style="text-align:right">' + (c.qtFixada    != null ? fNum(c.qtFixada,0)    : dash) + '</td>' +
+        '<td>' + (c.pctAtend != null
+          ? '<div style="display:flex;align-items:center;gap:5px;min-width:80px">' +
+            '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + pctCls +
+            '" style="width:' + Math.min(pct,100).toFixed(1) + '%"></div></div>' +
+            '<span style="font-size:.73rem;font-weight:700;color:' + pctClr + '">' + fPct(pct) + '</span></div>'
+          : dash) + '</td>';
       tbody.appendChild(tr);
     });
   }
 
-  // Totalizador
-  var totalContrato  = items.reduce(function(s,c) { return s+c.qtContrato;  }, 0);
-  var totalEntregue  = items.reduce(function(s,c) { return s+c.qtEntregue;  }, 0);
-  var totalAEntregar = items.reduce(function(s,c) { return s+c.qtAEntregar; }, 0);
-  var totalFaturada  = items.reduce(function(s,c) { return s+c.qtFaturada;  }, 0);
-  var totalAFaturar  = items.reduce(function(s,c) { return s+c.qtAFaturar;  }, 0);
-  var totalPct       = totalContrato > 0 ? (totalEntregue / totalContrato) * 100 : 0;
-  var totalPctCls    = totalPct >= 80 ? 'fill-green' : totalPct >= 40 ? 'fill-yellow' : 'fill-red';
+  // Totais
+  var totC2  = items.reduce(function(s,c){ return s+(c.qtContrato  ||0); },0);
+  var totE2  = items.reduce(function(s,c){ return s+(c.qtEntregue  ||0); },0);
+  var totAE2 = items.reduce(function(s,c){ return s+(c.qtAEntregar ||0); },0);
+  var totF2  = items.reduce(function(s,c){ return s+(c.qtFaturada  ||0); },0);
+  var totAF2 = items.reduce(function(s,c){ return s+(c.qtAFaturar  ||0); },0);
+  var totFix2= items.reduce(function(s,c){ return s+(c.qtFixada    ||0); },0);
+  var totPct2 = totC2 > 0 ? (totE2 / totC2 * 100) : 0;
+  var totPctCls2 = totPct2 >= 80 ? 'fill-green' : totPct2 >= 40 ? 'fill-yellow' : 'fill-red';
 
   var tfr = document.createElement('tr');
   tfr.className = 'contrato-total-row';
   tfr.innerHTML =
-    '<td colspan="4"><strong>TOTAL (' + items.length + ' contratos)</strong></td>' +
-    '<td class="mono"><strong>' + fNum(totalContrato,1) + '</strong></td>' +
-    '<td class="mono"><strong>' + fNum(totalEntregue,1) + '</strong></td>' +
-    '<td class="mono"><strong>' + fNum(totalAEntregar,1) + '</strong></td>' +
-    '<td class="mono"><strong>' + fNum(totalFaturada,1) + '</strong></td>' +
-    '<td class="mono"><strong>' + fNum(totalAFaturar,1) + '</strong></td>' +
-    '<td><div style="display:flex;align-items:center;gap:6px;min-width:90px">' +
-    '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + totalPctCls + '" style="width:' + Math.min(totalPct,100).toFixed(1) + '%"></div></div>' +
-    '<span style="font-size:0.75rem;font-weight:700">' + totalPct.toFixed(1) + '%</span></div></td>';
+    '<td colspan="4"><strong>TOTAL &mdash; ' + items.length + ' contrato(s)</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(totC2,0)  + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(totE2,0)  + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(totAE2,0) + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(totF2,0)  + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(totAF2,0) + '</strong></td>' +
+    '<td class="mono" style="text-align:right"><strong>' + fNum(totFix2,0)+ '</strong></td>' +
+    '<td colspan="3"><div style="display:flex;align-items:center;gap:5px;min-width:80px">' +
+      '<div class="progress-bar-wrap" style="flex:1"><div class="progress-bar-fill ' + totPctCls2 +
+      '" style="width:' + Math.min(totPct2,100).toFixed(1) + '%"></div></div>' +
+      '<span style="font-size:.73rem;font-weight:700">' + fPct(totPct2) + '</span></div></td>';
   tbody.appendChild(tfr);
 }
 
-// ── GRÁFICOS ──────────────────────────────────────
 function chartColors() {
   return darkMode
     ? { grid: 'rgba(255,255,255,.08)', text: '#8aad96', tick: '#8aad96' }

@@ -2,13 +2,217 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>Panorama Agro — Relatório Diário</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" />
   <link rel="stylesheet" href="style.css" />
+  <!-- ── CSS NOVOS COMPONENTES ── -->
+  <style>
+    /* ── Alerta Banner Próximos Recebimentos ──────── */
+    .alerta-receb-banner {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: .75rem 1.25rem;
+      border-radius: 10px;
+      font-size: .875rem;
+      font-weight: 500;
+      margin-bottom: 1rem;
+      border-left: 4px solid;
+    }
+    .banner-warning {
+      background: rgba(247,163,61,.12);
+      border-color: var(--yellow);
+      color: #b45309;
+    }
+    [data-dark] .banner-warning { color: #fcd34d; background: rgba(247,163,61,.18); }
+    .banner-info {
+      background: rgba(46,134,222,.10);
+      border-color: var(--blue);
+      color: #1d4ed8;
+    }
+    [data-dark] .banner-info { color: #93c5fd; background: rgba(46,134,222,.18); }
+
+    /* ── Badges Recebimentos ──────────────────────── */
+    .receb-hoje   { background:#e63946; color:#fff; font-size:.7rem; padding:1px 6px; border-radius:20px; font-weight:700; vertical-align:middle; }
+    .receb-amanha { background:#f4a261; color:#fff; font-size:.7rem; padding:1px 6px; border-radius:20px; font-weight:700; vertical-align:middle; }
+    .receb-dias   { background:var(--bg-card); border:1px solid var(--border); font-size:.7rem; padding:1px 6px; border-radius:20px; color:var(--text-muted); vertical-align:middle; }
+    tr.receb-urgente td { background: rgba(230,57,70,.06) !important; }
+    tr.receb-proximo td { background: rgba(244,162,97,.06) !important; }
+
+    .origem-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: .72rem;
+      font-weight: 600;
+      background: rgba(64,145,108,.13);
+      color: var(--green-mid);
+      white-space: nowrap;
+    }
+    .origem-sai {
+      background: rgba(230,57,70,.10);
+      color: var(--red);
+    }
+
+    /* ── Fluxo 30 Dias ────────────────────────────── */
+    .fluxo30-group {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: .75rem;
+      overflow: hidden;
+    }
+    .fluxo30-group-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: .85rem 1.25rem;
+      background: var(--bg-card);
+      cursor: pointer;
+      transition: background .15s;
+      flex-wrap: wrap;
+    }
+    .fluxo30-group-header:hover { background: var(--bg-hover, rgba(64,145,108,.07)); }
+    .fluxo30-emp-info { display: flex; align-items: center; gap: .6rem; }
+    .fluxo30-totais {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      font-size: .82rem;
+      font-weight: 600;
+    }
+    .ft-ent { color: var(--green-mid); }
+    .ft-sai { color: var(--red); }
+    .ft-sal-pos { color: var(--green-mid); }
+    .ft-sal-neg { color: var(--red); }
+    .ft-sal { color: var(--text-muted); }
+    .fluxo30-body { padding: 0 .5rem .5rem; }
+    .fluxo30-body .table thead th {
+      background: var(--bg-sidebar);
+      font-size: .75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    /* ── Frete Badge (Trade/Alcance) ──────────────── */
+    .frete-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: .72rem;
+      font-weight: 600;
+      background: rgba(123,45,139,.13);
+      color: #7b2d8b;
+      white-space: nowrap;
+    }
+    [data-dark] .frete-badge { background: rgba(123,45,139,.25); color: #d8b4fe; }
+
+    /* ── Layout responsivo — ajusta à tela do navegador ── */
+    html, body {
+      width: 100%;
+      max-width: 100vw;
+      overflow-x: hidden;
+      box-sizing: border-box;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    .main-content {
+      min-width: 0;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+    .page-body {
+      width: 100%;
+      min-width: 0;
+    }
+    .section { padding: 1.25rem 1.75rem !important; }
+    .kpi-grid { gap: .75rem !important; }
+
+    /* ── Chip de Safra no filtro global ──────────────── */
+    .gf-safra-wrap {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      margin-left: 1rem;
+      padding-left: 1rem;
+      border-left: 1px solid var(--border);
+    }
+    .gf-safra-label {
+      font-size: .75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+    }
+    .gf-safra-chips {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      flex-wrap: wrap;
+    }
+    .gf-safra-chip {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: .28rem .75rem;
+      font-size: .75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .gf-safra-chip:hover { border-color: var(--green-mid); color: var(--green-mid); }
+    .gf-safra-chip.active {
+      background: rgba(10,147,150,.15);
+      border-color: var(--teal, #0a9396);
+      color: var(--teal, #0a9396);
+    }
+
+    /* ── Tabela Contratos — compacta com scroll ────── */
+    #contratosTable {
+      font-size: 0.78rem !important;
+      white-space: nowrap;
+    }
+    #contratosTable th,
+    #contratosTable td {
+      padding: .35rem .55rem !important;
+      vertical-align: middle;
+    }
+    #contratosTable th { font-size: 0.73rem !important; }
+    .contrato-table-wrap { overflow-x: auto; width: 100%; }
+
+    /* ── Tabela Contratos — cabeçalhos com cor uniforme ── */
+    #contratosTable thead th {
+      background: var(--bg-sidebar) !important;
+      color: var(--text-muted) !important;
+      border-left: none !important;
+    }
+    /* Destaque sutil apenas nas células de dados das colunas novas */
+    #contratosTable tbody td.ta-col {
+      background: rgba(10,147,150,.04);
+      border-left: 1px solid rgba(10,147,150,.12);
+    }
+    [data-dark] #contratosTable tbody td.ta-col {
+      background: rgba(10,147,150,.09);
+    }
+    /* Badge Moeda */
+    .moeda-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 20px;
+      font-size: .72rem;
+      font-weight: 600;
+      background: rgba(46,134,222,.13);
+      color: #1d4ed8;
+    }
+    [data-dark] .moeda-badge { background: rgba(46,134,222,.22); color: #93c5fd; }  </style>
 </head>
 <body>
 
@@ -19,12 +223,14 @@
     <span class="brand-name">Panorama</span>
   </div>
   <nav class="sidebar-nav">
-    <a href="#resumo"          class="nav-item active" data-section="resumo">         <i class="fas fa-chart-pie"></i>   <span>Resumo</span></a>
-    <a href="#financeiro"      class="nav-item"        data-section="financeiro">     <i class="fas fa-landmark"></i>    <span>Financeiro</span></a>
-    <a href="#comercializacao" class="nav-item"        data-section="comercializacao"><i class="fas fa-wheat-awn"></i>   <span>Comercialização</span></a>
-    <a href="#indicadores"     class="nav-item"        data-section="indicadores">    <i class="fas fa-gauge-high"></i>  <span>Indicadores</span></a>
-    <a href="#alertas"         class="nav-item"        data-section="alertas">        <i class="fas fa-bell"></i>        <span>Alertas</span></a>
-    <a href="#contratos-nav"  class="nav-item"        data-section="contratos-nav">  <i class="fas fa-file-contract"></i><span>Contratos e Embarques</span></a>
+    <a href="#resumo"              class="nav-item active" data-section="resumo">             <i class="fas fa-chart-pie"></i>      <span>Resumo</span></a>
+    <a href="#financeiro"          class="nav-item"        data-section="financeiro">         <i class="fas fa-landmark"></i>       <span>Financeiro</span></a>
+    <a href="#proximos-receb"      class="nav-item"        data-section="proximos-receb">     <i class="fas fa-calendar-check"></i> <span>Próx. Recebimentos</span></a>
+    <a href="#fluxo30dias"         class="nav-item"        data-section="fluxo30dias">        <i class="fas fa-calendar-days"></i>  <span>Fluxo 30 Dias</span></a>
+    <a href="#alertas"             class="nav-item"        data-section="alertas">            <i class="fas fa-bell"></i>           <span>Alertas</span></a>
+    <a href="#comercializacao"     class="nav-item"        data-section="comercializacao">    <i class="fas fa-wheat-awn"></i>      <span>Comercialização</span></a>
+    <a href="#contratos-nav"       class="nav-item"        data-section="contratos-nav">      <i class="fas fa-file-contract"></i>  <span>Contratos e Embarques</span></a>
+    <a href="#indicadores"         class="nav-item"        data-section="indicadores">        <i class="fas fa-gauge-high"></i>     <span>Indicadores</span></a>
   </nav>
   <div class="sidebar-footer">
     <button class="btn-upload" onclick="document.getElementById('fileInput').click()">
@@ -79,6 +285,11 @@
         <button class="gf-chip active" data-emp="TODAS" onclick="setEmpresaFiltro('TODAS', this)">
           <i class="fas fa-layer-group"></i> Todas
         </button>
+      </div>
+      <!-- Filtro de Safra (aparece após carregar dados) -->
+      <div class="gf-safra-wrap" id="gfSafraWrap" style="display:none">
+        <span class="gf-safra-label"><i class="fas fa-calendar-alt"></i> Safra:</span>
+        <div class="gf-safra-chips" id="gfSafraChips"></div>
       </div>
       <div class="gf-badge" id="gfBadge">Aguardando dados</div>
     </div>
@@ -222,6 +433,57 @@
       </div>
     </section>
 
+    <!-- ═══════════════════════ PRÓXIMOS RECEBIMENTOS ═══════════════════════ -->
+    <section id="proximos-receb" class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-calendar-check"></i> Próximos Recebimentos</h2>
+        <span class="section-badge" id="proxRecebBadge">Próximos 30 dias</span>
+      </div>
+      <div id="proxRecebAlerta" style="display:none" class="alerta-receb-banner">
+        <i class="fas fa-triangle-exclamation"></i>
+        <span id="proxRecebAlertaMsg"></span>
+      </div>
+      <div class="card-panel">
+        <div class="table-responsive">
+          <table class="table" id="proxRecebTable" style="width:100%;font-size:0.84rem">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Empresa</th>
+                <th>Nome / Descrição</th>
+                <th>Origem</th>
+                <th style="text-align:right">Entradas (R$)</th>
+              </tr>
+            </thead>
+            <tbody id="proxRecebBody">
+              <tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Aguardando dados...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ FLUXO 30 PRÓXIMOS DIAS ═══════════════════════ -->
+    <section id="fluxo30dias" class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-calendar-days"></i> Fluxo de Caixa — 30 Próximos Dias</h2>
+        <span class="section-badge">Agrupado por Empresa</span>
+      </div>
+      <div class="card-panel" id="fluxo30Container">
+        <div style="text-align:center;color:var(--text-muted);padding:2rem">Aguardando dados...</div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════ ALERTAS ═══════════════════════ -->
+    <section id="alertas" class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-bell"></i> Alertas Executivos</h2>
+      </div>
+      <div id="alertasList" class="alertas-list">
+        <div class="alerta-empty"><i class="fas fa-circle-check"></i> Nenhum dado importado. Faça o upload da planilha.</div>
+      </div>
+    </section>
+
     <!-- ═══════════════════════ COMERCIALIZAÇÃO ═══════════════════════ -->
     <section id="comercializacao" class="section">
       <div class="section-header">
@@ -328,29 +590,32 @@
             </button>
           </div>
         </div>
-        <div class="table-responsive">
-          <table class="table contrato-table" id="contratosTable" style="width:100%;font-size:0.83rem">
+        <div class="table-responsive contrato-table-wrap">
+          <table class="table contrato-table" id="contratosTable" style="width:100%;font-size:0.78rem;white-space:nowrap">
             <thead>
               <tr>
                 <th>Empresa</th>
+                <th>Tipo</th>
                 <th>Cultura</th>
+                <th>Safra</th>
                 <th>Nº Contrato</th>
-                <th>Cliente / Comprador</th>
-                <th>Qt. Contrato (sc)</th>
-                <th>Qt. Entregue (sc)</th>
-                <th>Qt. A Entregar (sc)</th>
-                <th>Qt. Faturada (sc)</th>
-                <th>Qt. A Faturar (sc)</th>
-                <th>% Atendimento</th>
+                <th>Cliente / Fornecedor</th>
+                <th style="text-align:right">Qt. Contrato (sc)</th>
+                <th style="text-align:right">Qt. Entregue (sc)</th>
+                <th style="text-align:right">Qt. A Entregar (sc)</th>
+                <th style="text-align:right">Qt. Faturada (sc)</th>
+                <th style="text-align:right">Qt. A Faturar (sc)</th>
+                <th style="text-align:right">Qt. Fixada (sc)</th>
+                <th style="text-align:center">% Atendimento</th>
               </tr>
             </thead>
             <tbody id="contratosBody"></tbody>
           </table>
         </div>
         <div class="contrato-legenda">
-          <span><span class="leg-dot" style="background:var(--green-light)"></span> ≥ 80% faturado</span>
-          <span><span class="leg-dot" style="background:var(--yellow)"></span> 40–79% faturado</span>
-          <span><span class="leg-dot" style="background:var(--red)"></span> &lt; 40% faturado</span>
+          <span><span class="leg-dot" style="background:var(--green-light)"></span> ≥ 80% atendido</span>
+          <span><span class="leg-dot" style="background:var(--yellow)"></span> 40–79% atendido</span>
+          <span><span class="leg-dot" style="background:var(--red)"></span> &lt; 40% atendido</span>
           <span class="leg-note">% Atendimento = Qt. Entregue ÷ Qt. Contrato</span>
         </div>
       </div>
@@ -362,17 +627,6 @@
         <h2><i class="fas fa-gauge-high"></i> Outros Indicadores-Chave</h2>
       </div>
       <div class="ind-grid" id="indicadoresGrid"></div>
-    </section>
-
-    <!-- ═══════════════════════ ALERTAS ═══════════════════════ -->
-    <section id="alertas" class="section">
-      <div class="section-header">
-        <h2><i class="fas fa-bell"></i> Alertas Executivos</h2>
-      </div>
-      <div id="alertasList" class="alertas-list">
-        <div class="alerta-empty"><i class="fas fa-circle-check"></i> Nenhum dado importado. Faça o upload da planilha.</div>
-      </div>
-
     </section>
 
   </div><!-- /page-body -->
